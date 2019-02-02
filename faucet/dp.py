@@ -215,6 +215,7 @@ configuration.
 
     stack_defaults_types = {
         'priority': int,
+        'upstream_lacp': int,
     }
 
     lldp_beacon_defaults_types = {
@@ -420,8 +421,14 @@ configuration.
         # TODO: dynamically configure output attribue
         return table_config
 
-    def _configure_tables(self, valve_cl):
+    def _configure_tables(self):
         """Configure FAUCET pipeline with tables."""
+        valve_cl = SUPPORTED_HARDWARE.get(self.hardware, None)
+        test_config_condition(
+            not valve_cl, 'hardware %s must be in %s' % (
+                self.hardware, SUPPORTED_HARDWARE.keys()))
+        if not valve_cl:
+            return
         tables = {}
         self.groups = ValveGroupTable()
         relative_table_id = 0
@@ -463,6 +470,9 @@ configuration.
             flood_table.match_types += ((faucet_pipeline.STACK_LOOP_PROTECT_FIELD, False),)
             vlan_table = table_configs['vlan']
             vlan_table.set_fields += (faucet_pipeline.STACK_LOOP_PROTECT_FIELD,)
+            vlan_table.match_types += ((faucet_pipeline.STACK_LOOP_PROTECT_FIELD, False),)
+            eth_dst_table = table_configs['eth_dst']
+            eth_dst_table.set_fields = (faucet_pipeline.STACK_LOOP_PROTECT_FIELD,)
 
         for table_name, table_config in table_configs.items():
             size = self.table_sizes.get(table_name, self.min_wildcard_table_size)
@@ -483,6 +493,21 @@ configuration.
                 next_tables=next_table_ids
                 )
         self.tables = tables
+
+    def stack_upstream_up(self):
+        """Return True if root DP's LACP upstream is up."""
+        if not self.stack:
+            return None
+        if self.stack:
+            root_dp = self.stack['root_dp']
+            upstream_lacp = root_dp.stack.get('upstream_lacp', None)
+            if upstream_lacp:
+                upstream_lacp_up_ports = [
+                    port for port in root_dp.ports.values()
+                    if port.lacp == upstream_lacp and port.dyn_lacp_up]
+                if upstream_lacp_up_ports:
+                    return True
+        return False
 
     def set_defaults(self):
         super(DP, self).set_defaults()
@@ -652,21 +677,23 @@ configuration.
     def resolve_stack_topology(self, dps):
         """Resolve inter-DP config for stacking."""
         root_dp = None
-        stack_dps = []
-        for dp in dps:
-            if dp.stack is not None:
-                stack_dps.append(dp)
-                if 'priority' in dp.stack:
-                    test_config_condition(not isinstance(dp.stack['priority'], int), (
-                        'stack priority must be type %s not %s' % (
-                            int, type(dp.stack['priority']))))
-                    test_config_condition(dp.stack['priority'] <= 0, (
-                        'stack priority must be > 0'))
-                    test_config_condition(root_dp is not None, 'cannot have multiple stack roots')
-                    root_dp = dp
-                    for vlan in dp.vlans.values():
-                        test_config_condition(vlan.faucet_vips, (
-                            'routing + stacking not supported'))
+        stack_dps = [dp for dp in dps if dp.stack]
+        for dp in stack_dps:
+            if 'priority' in dp.stack:
+                test_config_condition(not isinstance(dp.stack['priority'], int), (
+                    'stack priority must be type %s not %s' % (
+                        int, type(dp.stack['priority']))))
+                test_config_condition(dp.stack['priority'] <= 0, (
+                    'stack priority must be > 0'))
+                test_config_condition(root_dp is not None, 'cannot have multiple stack roots')
+                root_dp = dp
+                for vlan in dp.vlans.values():
+                    test_config_condition(vlan.faucet_vips, (
+                        'routing + stacking not supported'))
+            else:
+                test_config_condition(
+                    'upstream_lacp' in dp.stack,
+                    'upstream_lacp can only be set on root DP')
 
         if root_dp is None:
             test_config_condition(stack_dps, 'stacking enabled but no root_dp')
@@ -752,7 +779,7 @@ configuration.
 
     def is_stack_root(self):
         """Return True if this DP is the root of the stack."""
-        return 'priority' in self.stack
+        return self.stack and 'priority' in self.stack
 
     def is_stack_edge(self):
         """Return True if this DP is a stack edge."""
@@ -788,7 +815,7 @@ configuration.
         path = self.shortest_path(dst_dp.name, src_dp.name)
         return self.name in path
 
-    def reset_refs(self, vlans=None):
+    def reset_refs(self, vlans=None, root_dp=None):
         """Resets vlan references"""
         if vlans is None:
             vlans = self.vlans
@@ -797,6 +824,8 @@ configuration.
             vlan.reset_ports(self.ports.values())
             if vlan.get_ports() or vlan.reserved_internal_vlan:
                 self.vlans[vlan.vid] = vlan
+        if root_dp is not None:
+            self.stack['root_dp'] = root_dp
 
     def resolve_port(self, port_name):
         """Resolve a port by number or name."""
@@ -1047,10 +1076,6 @@ configuration.
             self.routers = dp_routers
 
         test_config_condition(not self.vlans, 'no VLANs referenced by interfaces in %s' % self.name)
-        valve_cl = SUPPORTED_HARDWARE.get(self.hardware, None)
-        test_config_condition(
-            not valve_cl, 'hardware %s must be in %s' % (
-                self.hardware, SUPPORTED_HARDWARE.keys()))
 
         for dp in dps:
             dp_by_name[dp.name] = dp
@@ -1066,8 +1091,6 @@ configuration.
         resolve_vlan_names_in_routers()
         resolve_acls()
 
-        self._configure_tables(valve_cl)
-
         bgp_vlans = self.bgp_vlans()
         if bgp_vlans:
             for vlan in bgp_vlans:
@@ -1082,6 +1105,8 @@ configuration.
                 test_config_condition(vlan.bgp_server_addresses != (
                     bgp_vlans[0].bgp_server_addresses), (
                         'BGP server addresses must all be the same'))
+
+        self._configure_tables()
 
         for port in self.ports.values():
             port.finalize()

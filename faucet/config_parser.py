@@ -188,6 +188,13 @@ def _dp_parser_v2(acls_conf, dps_conf, meters_conf,
         test_config_condition(not router_ref_dps[router], (
             'router %s configured but not used by any DP' % router))
 
+    stack_dps = [dp for dp in dps if dp.stack]
+    if stack_dps:
+        root_dp = [dp for dp in stack_dps if dp.is_stack_root()]
+        if root_dp:
+            root_dp = root_dp[0]
+            for dp in stack_dps:
+                dp.stack['root_dp'] = root_dp
     return dps
 
 

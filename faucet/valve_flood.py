@@ -124,11 +124,17 @@ class ValveFloodManager(ValveManagerBase):
             **add_match)
         flood_acts = preflood_acts + self._build_flood_rule_actions(
             vlan, exclude_unicast, port, exclude_all_external)
+        if not self._output_ports_from_actions(flood_acts):
+            flood_acts = []
         return (self._build_flood_rule(match, command, flood_acts, flood_priority), flood_acts)
 
     @staticmethod
     def _output_ports_from_actions(flood_acts):
         return {act.port for act in flood_acts if valve_of.is_output(act)}
+
+    @staticmethod
+    def _non_output_port_actions(flood_acts):
+        return {str(act) for act in flood_acts if not valve_of.is_output(act)}
 
     def _build_mask_flood_rules(self, vlan, eth_dst, eth_dst_mask, # pylint: disable=too-many-arguments
                                 exclude_unicast, command):
@@ -146,6 +152,7 @@ class ValveFloodManager(ValveManagerBase):
             if not self.use_group_table:
                 ofmsgs.append(vlan_flood_ofmsg)
             vlan_output_ports = self._output_ports_from_actions(vlan_flood_acts)
+            vlan_output_acts = self._non_output_port_actions(vlan_flood_acts)
             for port in self._vlan_all_ports(vlan, exclude_unicast):
                 # Cull port-specific logic to prevent unnecessary O(n^2) calculations.
                 if not port.hairpin or not port.dyn_phys_up:
@@ -155,7 +162,9 @@ class ValveFloodManager(ValveManagerBase):
                     exclude_unicast, command, port)
                 port_output_ports = self._output_ports_from_actions(port_flood_acts)
                 port_output_ports.add(port.number)
-                if vlan_output_ports != port_output_ports:
+
+                if (self._non_output_port_actions(port_flood_acts) != vlan_output_acts or
+                        vlan_output_ports != port_output_ports):
                     ofmsgs.append(port_flood_ofmsg)
         return ofmsgs
 
@@ -256,7 +265,8 @@ class ValveFloodStackManager(ValveFloodManager):
                  use_group_table, groups,
                  combinatorial_port_flood,
                  stack, stack_ports,
-                 dp_shortest_path_to_root, shortest_path_port):
+                 dp_shortest_path_to_root, shortest_path_port,
+                 stack_upstream_up):
         super(ValveFloodStackManager, self).__init__(
             logger, flood_table, pipeline,
             use_group_table, groups,
@@ -265,6 +275,7 @@ class ValveFloodStackManager(ValveFloodManager):
         self.stack_ports = stack_ports
         self.shortest_path_port = shortest_path_port
         self.dp_shortest_path_to_root = dp_shortest_path_to_root
+        self.stack_upstream_up = stack_upstream_up
         self._reset_peer_distances()
 
     def _set_ext_flag(self, ext_flag):
@@ -443,8 +454,17 @@ class ValveFloodStackManager(ValveFloodManager):
             exclude_ports = [
                 port for port in self.stack_ports
                 if port.stack['dp'] == in_port_peer_dp]
+
         local_flood_actions = self._build_flood_local_rule_actions(
             vlan, exclude_unicast, in_port, exclude_all_external)
+        if self.stack_upstream_up():
+            local_flood_actions = self.ext_flood_not_needed + local_flood_actions
+        else:
+            if in_port and in_port.loop_protect_external:
+                local_flood_actions = self.ext_flood_not_needed + local_flood_actions
+            else:
+                local_flood_actions = self.ext_flood_needed + local_flood_actions
+
         away_flood_actions = valve_of.flood_tagged_port_outputs(
             self.away_from_root_stack_ports, in_port, exclude_ports=exclude_ports)
         toward_flood_actions = valve_of.flood_tagged_port_outputs(
