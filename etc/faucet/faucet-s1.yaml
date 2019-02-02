@@ -1,0 +1,50 @@
+dps:
+        x510:
+                dp_id: 0x510
+                faucet_dp_mac: "0e:00:00:00:01:01"
+                lacp_timeout: 5
+                combinatorial_port_flood: true
+                lldp_beacon:
+                        send_interval: 5
+                        max_per_interval: 5
+                stack:
+                        priority: 1
+                        upstream_lacp: 1
+                interfaces:
+                        1:
+                                native_vlan: 100
+                                lacp: 1
+                        2:
+                                native_vlan: 100
+                                lacp: 1
+                        22:
+                                tagged_vlans: [100]
+                                loop_protect_external: True
+                        23:
+                                receive_lldp: True
+                                lldp_beacon:
+                                        enable: True
+                                stack:
+                                        dp: x230-1
+                                        port: 7
+        x230-1:
+                dp_id: 0xb1
+                faucet_dp_mac: "0e:00:00:00:01:02"
+                lacp_timeout: 5
+                combinatorial_port_flood: true
+                lldp_beacon:
+                        send_interval: 5
+                        max_per_interval: 5
+                interfaces:
+                        1:
+                                native_vlan: 100
+                        6:
+                                tagged_vlans: [100]
+                                loop_protect_external: True
+                        7:
+                                receive_lldp: True
+                                lldp_beacon:
+                                        enable: True
+                                stack:
+                                        dp: x510
+                                        port: 23
