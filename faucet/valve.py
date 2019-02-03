@@ -1088,25 +1088,27 @@ class Valve:
         Returns:
             list: OpenFlow messages, if any.
         """
+        learn_flows = []
         learn_port = self.flood_manager.edge_learn_port(
             other_valves, pkt_meta)
         if learn_port is not None:
-            learn_flows, previous_port = self.host_manager.learn_host_on_vlan_ports(
+            learn_flows, previous_port, update_cache = self.host_manager.learn_host_on_vlan_ports(
                 now, learn_port, pkt_meta.vlan, pkt_meta.eth_src,
                 last_dp_coldstart_time=self.dp.dyn_last_coldstart_time)
+            port_move_text = ''
+            previous_port_no = None
             if learn_flows:
                 if pkt_meta.l3_pkt is None:
                     pkt_meta.reparse_ip()
-                previous_port_no = None
-                port_move_text = ''
                 if previous_port is not None:
                     previous_port_no = previous_port.number
                     if pkt_meta.port.number != previous_port_no:
                         cache_age = now - pkt_meta.vlan.cached_host(pkt_meta.eth_src).cache_time
                         if cache_age <= 2:
-                            self.logger.info('supress rapid move of %s from %u to %u' % (pkt_meta.log(), previous_port_no, pkt_meta.port.number))
+                            self.logger.info('suppress rapid move of %s from %u to %u' % (pkt_meta.log(), previous_port_no, pkt_meta.port.number))
                             return []
                         port_move_text = ', moved from port %u (age %u)' % (previous_port_no, cache_age)
+            if update_cache:
                 pkt_meta.vlan.add_cache_host(pkt_meta.eth_src, pkt_meta.port, now)
                 self.logger.info(
                     'L2 learned %s %s (%u hosts total)' % (
