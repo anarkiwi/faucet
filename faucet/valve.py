@@ -730,7 +730,7 @@ class Valve:
 
             if port.lacp:
                 if not port.dyn_lacp_up:
-                    ofmsgs.extend(self.lacp_down(port, [], cold_start=cold_start)[self])
+                    ofmsgs.extend(self.lacp_down(port, cold_start=cold_start))
                 if port.lacp_active:
                     pkt = self._lacp_pkt(port.dyn_last_lacp_pkt, port)
                     ofmsgs.append(valve_of.packetout(port.number, pkt.data))
@@ -824,7 +824,7 @@ class Valve:
                     self.acl_manager
                     ))
             if port.lacp:
-                ofmsgs.extend(self.lacp_down(port, [])[self])
+                ofmsgs.extend(self.lacp_down(port))
             else:
                 ofmsgs.extend(self._port_delete_flows_state(port))
 
@@ -842,7 +842,7 @@ class Valve:
     def _reset_lacp_status(self, port):
         self._set_var('port_lacp_status', port.dyn_lacp_up, labels=self.dp.port_labels(port.number))
 
-    def lacp_down(self, port, other_valves, cold_start=False):
+    def lacp_down(self, port, cold_start=False):
         """Return OpenFlow messages when LACP is down on a port."""
         ofmsgs = []
         if port.dyn_lacp_up != 0:
@@ -867,9 +867,7 @@ class Valve:
             priority=self.dp.highest_priority,
             max_len=valve_packet.LACP_SIZE))
         self._reset_lacp_status(port)
-        ofmsgs_by_valve = {self: ofmsgs}
-        ofmsgs_by_valve = self._reset_stack_external_ports(other_valves, ofmsgs_by_valve)
-        return ofmsgs_by_valve
+        return ofmsgs
 
     def _reset_stack_external_ports(self, other_valves, ofmsgs_by_valve):
         if other_valves is None:
@@ -969,8 +967,6 @@ class Valve:
                             pkt_meta.log()))
                     if lacp_pkt.actor_state_synchronization:
                         ofmsgs_by_valve.update(self.lacp_up(pkt_meta.port, other_valves))
-                    else:
-                        ofmsgs_by_valve.update(self.lacp_down(pkt_meta.port, other_valves))
                 # TODO: make LACP response rate limit configurable.
                 if lacp_pkt_change or (age is not None and age > 1):
                     pkt = self._lacp_pkt(lacp_pkt, pkt_meta.port)
@@ -1102,12 +1098,7 @@ class Valve:
                 if previous_port is not None:
                     previous_port_no = previous_port.number
                     if pkt_meta.port.number != previous_port_no:
-                        cache_age = now - pkt_meta.vlan.cached_host(pkt_meta.eth_src).cache_time
-                        if cache_age <= 2:
-                            self.logger.info('supress rapid move of %s from %u to %u' % (pkt_meta.log(), previous_port_no, pkt_meta.port.number))
-                            return []
-                        port_move_text = ', moved from port %u (age %u)' % (previous_port_no, cache_age)
-                pkt_meta.vlan.add_cache_host(pkt_meta.eth_src, pkt_meta.port, now)
+                        port_move_text = ', moved from port %u' % previous_port_no
                 self.logger.info(
                     'L2 learned %s %s (%u hosts total)' % (
                         pkt_meta.log(), port_move_text, pkt_meta.vlan.hosts_count()))
@@ -1362,7 +1353,8 @@ class Valve:
         if lacp_down_ports:
             for port in lacp_down_ports:
                 self.logger.info('LACP on %s expired' % port)
-                ofmsgs_by_valve.update(self.lacp_down(port, other_valves))
+                ofmsgs_by_valve[self].extend(self.lacp_down(port))
+            ofmsgs_by_valve = self._reset_stack_external_ports(other_valves, ofmsgs_by_valve)
         return ofmsgs_by_valve
 
     def state_expire(self, now, other_valves):

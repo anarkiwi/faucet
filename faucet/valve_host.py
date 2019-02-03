@@ -112,7 +112,7 @@ class ValveHostManager(ValveManagerBase):
                 if table:
                     # per OF 1.3.5 B.6.23, the OFA will match flows
                     # that have an action targeting this port.
-                    ofmsgs.append(table.flowdel(table.match(vlan=vlan), out_port=port.number))
+                    table.flowdel(table.match(vlan=vlan), out_port=port.number)
         return ofmsgs
 
     def initialise_tables(self):
@@ -316,6 +316,7 @@ class ValveHostManager(ValveManagerBase):
             src_rule_idle_timeout, src_rule_hard_timeout,
             dst_rule_idle_timeout))
 
+        vlan.add_cache_host(eth_src, port, now)
         return (ofmsgs, cache_port)
 
     def flow_timeout(self, _now, _table_id, _match):
