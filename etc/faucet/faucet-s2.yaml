@@ -1,47 +1,32 @@
 dps:
-        x930:
-                dp_id: 0x930
-                faucet_dp_mac: "0e:00:00:00:02:01"
-                combinatorial_port_flood: true
-                lacp_timeout: 5
-                lldp_beacon:
-                        send_interval: 5
-                        max_per_interval: 5
-                stack:
-                        priority: 1
-                        upstream_lacp: 1
-                interfaces:
-                        11:
-                                native_vlan: 100
-                                lacp: 1
-                        12:
-                                native_vlan: 100
-                                lacp: 1
-                        22:
-                                tagged_vlans: [100]
-                                loop_protect_external: True
-                        23:
-                                receive_lldp: True
-                                lldp_beacon:
-                                        enable: True
-                                stack:
-                                        dp: x230-2
-                                        port: 7
-        x230-2:
-                dp_id: 0xb2
-                faucet_dp_mac: "0e:00:00:00:02:02"
-                lacp_timeout: 5
-                combinatorial_port_flood: true
-                interfaces:
-                        1:
-                                native_vlan: 100
-                        6:
-                                tagged_vlans: [100]
-                                loop_protect_external: True
-                        7:
-                                receive_lldp: True
-                                lldp_beacon:
-                                        enable: True
-                                stack:
-                                        dp: x930
-                                        port: 23
+  x230-2:
+    combinatorial_port_flood: true
+    dp_id: 178
+    faucet_dp_mac: 0e:00:00:00:02:02
+    interfaces:
+      1: {native_vlan: 100}
+      6:
+        loop_protect_external: true
+        tagged_vlans: [100]
+      7:
+        lldp_beacon: {enable: true}
+        receive_lldp: true
+        stack: {dp: x930, port: 23}
+    lacp_timeout: 5
+  x930:
+    combinatorial_port_flood: true
+    dp_id: 2352
+    faucet_dp_mac: 0e:00:00:00:02:01
+    interfaces:
+      11: {lacp: 1, native_vlan: 100}
+      12: {lacp: 1, native_vlan: 100}
+      22:
+        loop_protect_external: true
+        tagged_vlans: [100]
+      23:
+        lldp_beacon: {enable: true}
+        receive_lldp: true
+        stack: {dp: x230-2, port: 7}
+    lacp_timeout: 5
+    lldp_beacon: {max_per_interval: 5, send_interval: 5}
+    stack: {priority: 1, upstream_lacp: 1}
