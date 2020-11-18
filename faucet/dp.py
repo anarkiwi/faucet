@@ -277,6 +277,7 @@ configuration.
         self.max_hosts_per_resolve_cycle = None
         self.max_resolve_backoff_time = None
         self.meters = None
+        self.all_meters = None
         self.metrics_rate_limit_sec = None
         self.name = None
         self.ofchannel_log = None
@@ -315,6 +316,7 @@ configuration.
         self.lacp_active_ports = []
         self.tables = {}
         self.meters = {}
+        self.all_meters = {}
         self.lldp_beacon = {}
         self.table_sizes = {}
         self.dyn_up_port_nos = set()
@@ -324,17 +326,17 @@ configuration.
         super().__init__(_id, dp_id, conf)
 
     def __str__(self):
-        return self.name
+        return str(self.name)
 
-    def clone_dyn_state(self, prev_dp):
+    def clone_dyn_state(self, prev_dp, dps=None):
         """Clone dynamic state for this dp"""
         self.dyn_running = prev_dp.dyn_running
         self.dyn_up_port_nos = set(prev_dp.dyn_up_port_nos)
         self.dyn_last_coldstart_time = prev_dp.dyn_last_coldstart_time
-        if self.stack:
-            self.stack.clone_dyn_state(prev_dp.stack)
         for number in self.ports:
             self.ports[number].clone_dyn_state(prev_dp.ports.get(number))
+        if self.stack:
+            self.stack.clone_dyn_state(prev_dp.stack, dps)
 
     def cold_start(self, now):
         """Update to reflect a cold start"""
@@ -378,7 +380,9 @@ configuration.
         if self.dot1x:
             self._check_conf_types(self.dot1x, self.dot1x_defaults_types)
         self._check_conf_types(self.table_sizes, self.default_table_sizes_types)
-        self.stack = Stack('stack', self.dp_id, self.name, self.canonical_port_order, self.stack)
+        self.stack = Stack('stack', self.dp_id, self.name,
+                           self.canonical_port_order, self.lacp_down_ports, self.lacp_ports,
+                           self.stack)
 
     def _lldp_defaults(self):
         self._check_conf_types(self.lldp_beacon, self.lldp_beacon_defaults_types)
@@ -644,10 +648,6 @@ configuration.
             table for table in self.tables.values()
             if table.match_types is None or match_type in table.match_types]
 
-    def in_port_tables(self):
-        """Return list of tables that specify in_port as a match."""
-        return self.match_tables('in_port')
-
     def non_vlan_ports(self):
         """Ports that don't have VLANs on them."""
         ports = set()
@@ -681,6 +681,10 @@ configuration.
         """Return ports that have LACP not UP"""
         return tuple([port for port in self.lacp_ports() if not port.is_actor_up()])
 
+    def lacp_nosync_ports(self):
+        """Return ports that have LACP status NO_SYNC."""
+        return tuple([port for port in self.lacp_ports() if port.is_actor_nosync()])
+
     def lags(self):
         """Return dict of LAGs mapped to member ports."""
         lags = defaultdict(list)
@@ -692,6 +696,13 @@ configuration.
         """Return dict of LAGs mapped to member ports that have LACP up."""
         lags = defaultdict(list)
         for port in self.lacp_up_ports():
+            lags[port.lacp].append(port)
+        return lags
+
+    def lags_nosync(self):
+        """Return dict of LAGs mapped to member ports that have LACP in NO SYNC."""
+        lags = defaultdict(list)
+        for port in self.lacp_nosync_ports():
             lags[port.lacp].append(port)
         return lags
 
@@ -820,6 +831,7 @@ configuration.
 
         dp_by_name = {}
         vlan_by_name = {}
+        acl_meters = set()
 
         def first_unused_vlan_id(vid):
             """Returns the first unused VID from the starting vid"""
@@ -1005,6 +1017,7 @@ configuration.
             for meter_name in acl.get_meters():
                 test_config_condition(meter_name not in self.meters, (
                     'meter %s is not configured' % meter_name))
+                acl_meters.add(meter_name)
             for port_no in acl.get_mirror_destinations():
                 port = self.ports[port_no]
                 port.output_only = True
@@ -1073,6 +1086,9 @@ configuration.
             if self.tunnel_acls:
                 for tunnel_acl in self.tunnel_acls:
                     tunnel_acl.verify_tunnel_rules()
+            self.all_meters = copy.copy(self.meters)
+            for unused_meter in set(self.meters.keys()) - acl_meters:
+                del self.meters[unused_meter]
 
         def resolve_routers():
             """Resolve VLAN references in routers."""

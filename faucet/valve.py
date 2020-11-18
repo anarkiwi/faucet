@@ -186,10 +186,13 @@ class Valve:
             valve_util.close_logger(self.logger.logger)
         valve_util.close_logger(self.ofchannel_logger)
 
-    def dp_init(self, new_dp=None):
+    def dp_init(self, new_dp=None, valves=None):
         """Initialize datapath state at connection/re/config time."""
         if new_dp:
-            new_dp.clone_dyn_state(self.dp)
+            dps = None
+            if valves:
+                dps = [valve.dp for valve in valves]
+            new_dp.clone_dyn_state(self.dp, dps)
             self.dp = new_dp
 
         self.close_logs()
@@ -229,7 +232,6 @@ class Valve:
 
         self.stack_manager = None
         if self.dp.stack:
-            # TODO: Verify intention that this is reset on cold-start
             self.stack_manager = ValveStackManager(
                 self.logger, self.dp, self.dp.stack, self.dp.tunnel_acls, self.acl_manager)
 
@@ -275,6 +277,7 @@ class Valve:
                 self._lldp_manager, self._route_manager_by_ipv.get(4),
                 self._route_manager_by_ipv.get(6), self._coprocessor_manager,
                 self._output_only_manager) if manager is not None)
+
 
     def notify(self, event_dict):
         """Send an event notification."""
@@ -324,22 +327,11 @@ class Valve:
     def _delete_all_valve_flows(self):
         """Delete all flows from all FAUCET tables."""
         ofmsgs = [valve_table.wildcard_table.flowdel()]
-        if self.dp.meters or self.dp.packetin_pps or self.dp.slowpath_pps:
+        if self.dp.all_meters or self.dp.packetin_pps or self.dp.slowpath_pps:
             ofmsgs.append(valve_of.meterdel())
         if self.dp.group_table:
             ofmsgs.append(self.dp.groups.delete_all())
         return ofmsgs
-
-    def _delete_all_port_match_flows(self, port):
-        """Delete all flows that match an input port from all FAUCET tables."""
-        tables = [valve_table.wildcard_table]
-        if self.dp.dp_acls:
-            # DP ACL flows live forever.
-            port_acl_table = self.dp.tables['port_acl']
-            tables = set(self.dp.in_port_tables()) - set([port_acl_table])
-        return [
-            table.flowdel(match=table.match(in_port=port.number))
-            for table in tables]
 
     @staticmethod
     def _pipeline_flows():
@@ -659,23 +651,18 @@ class Valve:
         self._reset_dp_status()
         self.ports_delete(self.dp.ports.keys(), now=now)
 
-    def _port_delete_manager_state(self, port):
-        ofmsgs = []
-        for manager in self._managers:
-            ofmsgs.extend(manager.del_port(port))
-        return ofmsgs
-
     def _port_delete_flows_state(self, port, keep_cache=False):
         """Delete flows/state for a port."""
         ofmsgs = []
         for route_manager in self._route_manager_by_ipv.values():
             ofmsgs.extend(route_manager.expire_port_nexthops(port))
-        ofmsgs.extend(self._delete_all_port_match_flows(port))
+        for manager in self._managers:
+            ofmsgs.extend(manager.del_port(port))
         if not keep_cache:
             for vlan in port.vlans():
                 for entry in port.hosts([vlan]):
                     self._update_expired_host(entry, vlan)
-            ofmsgs.extend(self._port_delete_manager_state(port))
+                vlan.clear_cache_hosts_on_port(port)
         return ofmsgs
 
     def ports_add(self, port_nums, cold_start=False, log_msg='up'):
@@ -707,9 +694,6 @@ class Valve:
 
             if self._dot1x_manager:
                 ofmsgs.extend(self._dot1x_manager.add_port(port))
-
-            if port.output_only:
-                continue
 
             if port.lacp:
                 ofmsgs.extend(self.lacp_update(port, False, cold_start=cold_start))
@@ -757,9 +741,6 @@ class Valve:
             # now is set to a time value only when ports_delete is called to flush
             if now:
                 self._set_port_status(port_num, False, now)
-
-            if port.output_only:
-                continue
 
             if self._dot1x_manager:
                 ofmsgs.extend(self._dot1x_manager.del_port(port))
@@ -822,6 +803,7 @@ class Valve:
                 ofmsgs.extend(self.switch_manager.disable_forwarding(port))
                 if not cold_start:
                     ofmsgs.extend(self.switch_manager.del_port(port))
+                    ofmsgs.extend(self.switch_manager.add_port(port))
                     ofmsgs.extend(self.add_vlans(port.vlans()))
         return ofmsgs
 
@@ -1263,7 +1245,7 @@ class Valve:
                 return True
         return False
 
-    def _apply_config_changes(self, new_dp, changes):
+    def _apply_config_changes(self, new_dp, changes, valves=None):
         """Apply any detected configuration changes.
 
         Args:
@@ -1280,6 +1262,7 @@ class Valve:
                 deleted_meters: (set): deleted meter numbers.
                 changed_meters: (set): changed meter numbers.
                 added_meters: (set): added meter numbers.
+            valves (list): List of other running valves
         Returns:
             tuple:
                 restart_type (string or None)
@@ -1294,12 +1277,12 @@ class Valve:
         # If pipeline or all ports changed, default to cold start.
         if self._pipeline_change():
             self.logger.info('pipeline change')
-            self.dp_init(new_dp)
+            self.dp_init(new_dp, valves)
             return restart_type, ofmsgs
 
         if all_ports_changed:
             self.logger.info('all ports changed')
-            self.dp_init(new_dp)
+            self.dp_init(new_dp, valves)
             return restart_type, ofmsgs
 
         restart_type = None
@@ -1315,6 +1298,8 @@ class Valve:
 
         if deleted_ports:
             ofmsgs.extend(self.ports_delete(deleted_ports))
+        if changed_ports:
+            ofmsgs.extend(self.ports_delete(changed_ports))
         if deleted_vids:
             deleted_vlans = [self.dp.vlans[vid] for vid in deleted_vids]
             ofmsgs.extend(self.del_vlans(deleted_vlans))
@@ -1329,25 +1314,20 @@ class Valve:
                     deleted_meters.add(meter_key)
                     added_meters.add(meter_key)
             changed_meters -= added_meters
-        if deleted_meters:
-            deleted_meter_ids = [self.dp.meters[meter_key].meter_id for meter_key in deleted_meters]
-            ofmsgs.extend([valve_of.meterdel(deleted_meter_id) for deleted_meter_id in deleted_meter_ids])
+        if self.acl_manager:
+            if deleted_meters:
+                ofmsgs.extend(self.acl_manager.del_meters(deleted_meters))
 
-        self.dp_init(new_dp)
+        self.dp_init(new_dp, valves)
 
-        if changed_meters:
-            for changed_meter in changed_meters:
-                ofmsgs.append(valve_of.meteradd(
-                    new_dp.meters.get(changed_meter).entry, command=1))
-        if added_meters:
-            for added_meter in added_meters:
-                ofmsgs.append(valve_of.meteradd(
-                    self.dp.meters.get(added_meter).entry, command=0))
-
+        if self.acl_manager:
+            if changed_meters:
+                ofmsgs.extend(self.acl_manager.change_meters(changed_meters))
+            if added_meters:
+                ofmsgs.extend(self.acl_manager.add_meters(added_meters))
         if added_ports:
             ofmsgs.extend(self.ports_add(added_ports))
         if changed_ports:
-            ofmsgs.extend(self.ports_delete(changed_ports))
             all_up_port_nos = [
                 port for port in changed_ports
                 if port in self.dp.dyn_up_port_nos]
@@ -1364,10 +1344,9 @@ class Valve:
             ofmsgs.extend(self.add_vlans(changed_vlans, cold_start=True))
         if self.stack_manager:
             ofmsgs.extend(self.stack_manager.add_tunnel_acls())
-
         return restart_type, ofmsgs
 
-    def reload_config(self, _now, new_dp):
+    def reload_config(self, _now, new_dp, valves=None):
         """Reload configuration new_dp.
 
         Following config changes are currently supported:
@@ -1381,11 +1360,12 @@ class Valve:
         Args:
             now (float): current epoch time.
             new_dp (DP): new dataplane configuration.
+            valves (list): List of all valves
         Returns:
             ofmsgs (list): OpenFlow messages.
         """
         restart_type, ofmsgs = self._apply_config_changes(
-            new_dp, self.dp.get_config_changes(self.logger, new_dp))
+            new_dp, self.dp.get_config_changes(self.logger, new_dp), valves)
         if restart_type is not None:
             self._inc_var('faucet_config_reload_%s' % restart_type)
             self.logger.info('%s starting' % restart_type)

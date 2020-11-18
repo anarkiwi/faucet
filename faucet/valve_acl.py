@@ -322,35 +322,41 @@ class ValveAclManager(ValveManagerBase):
                 False))
         return ofmsgs
 
+    def _port_acls_allowed(self, port):
+        return not self.dp_acls and not port.output_only and self.port_acl_table
+
     def add_port(self, port):
         """Install port acls if configured"""
         ofmsgs = []
-        if self.port_acl_table is None or self.dp_acls is not None \
-                or port.output_only:
-            return ofmsgs
+        if self._port_acls_allowed(port):
+            in_port_match = self.port_acl_table.match(in_port=port.number)
+            acl_allow_inst = self.pipeline.accept_to_vlan()
+            acl_force_port_vlan_inst = self.pipeline.accept_to_l2_forwarding()
+            if port.acls_in:
+                ofmsgs.extend(build_acl_ofmsgs(
+                    port.acls_in, self.port_acl_table,
+                    acl_allow_inst, acl_force_port_vlan_inst,
+                    self.acl_priority, self.meters,
+                    port.acls_in[0].exact_match, port_num=port.number))
+            elif not port.dot1x:
+                ofmsgs.append(self.port_acl_table.flowmod(
+                    in_port_match,
+                    priority=self.acl_priority,
+                    inst=tuple(acl_allow_inst)))
+        return ofmsgs
 
-        in_port_match = self.port_acl_table.match(in_port=port.number)
-        acl_allow_inst = self.pipeline.accept_to_vlan()
-        acl_force_port_vlan_inst = self.pipeline.accept_to_l2_forwarding()
-        if port.acls_in:
-            ofmsgs.extend(build_acl_ofmsgs(
-                port.acls_in, self.port_acl_table,
-                acl_allow_inst, acl_force_port_vlan_inst,
-                self.acl_priority, self.meters,
-                port.acls_in[0].exact_match, port_num=port.number))
-        elif not port.dot1x:
-            ofmsgs.append(self.port_acl_table.flowmod(
-                in_port_match,
-                priority=self.acl_priority,
-                inst=tuple(acl_allow_inst)))
+    def del_port(self, port):
+        ofmsgs = []
+        if self._port_acls_allowed(port):
+            in_port_match = self.port_acl_table.match(in_port=port.number)
+            ofmsgs.append(self.port_acl_table.flowdel(in_port_match, self.acl_priority))
         return ofmsgs
 
     def cold_start_port(self, port):
         """Reload acl for a port by deleting existing rules and calling
         add_port"""
         ofmsgs = []
-        in_port_match = self.port_acl_table.match(in_port=port.number)
-        ofmsgs.append(self.port_acl_table.flowdel(in_port_match))
+        ofmsgs.extend(self.del_port(port))
         ofmsgs.extend(self.add_port(port))
         return ofmsgs
 
@@ -500,15 +506,15 @@ class ValveAclManager(ValveManagerBase):
                 valve_of.output_port(nfv_sw_port_num)]),),
         )
 
-    def del_mab_flow(self, port_num, nfv_sw_port_num, mac):
+    def del_mab_flow(self, port_num, _nfv_sw_port_num, _mac):
         """
         Remove MAB ACL for sending IP Activity to Chewie NFV
             Returns flowmods to send all IP traffic to Chewie
 
         Args:
             port_num (int): Number of port in
-            nfv_sw_port_num(int): Number of port out
-            mac(str): MAC address of the valve/port combo
+            _nfv_sw_port_num(int): Number of port out
+            _mac(str): MAC address of the valve/port combo
 
         """
         return [self.port_acl_table.flowdel(
@@ -548,4 +554,31 @@ class ValveAclManager(ValveManagerBase):
                 rule_conf, acl_table, acl_allow_inst, acl_force_port_vlan_inst,
                 self.acl_priority, priority, self.meters,
                 acl.exact_match, in_port, None, acl.dyn_tunnel_rules, source_id, flowdel=True))
+        return ofmsgs
+
+    def change_meters(self, changed_meters):
+        """Change existing meters with same name/ID."""
+        ofmsgs = []
+        if changed_meters:
+            for changed_meter in changed_meters:
+                ofmsgs.append(valve_of.meteradd(
+                    self.meters.get(changed_meter).entry, command=1))
+        return ofmsgs
+
+    def add_meters(self, added_meters):
+        """Add new meters."""
+        ofmsgs = []
+        if added_meters:
+            for added_meter in added_meters:
+                ofmsgs.append(valve_of.meteradd(
+                    self.meters.get(added_meter).entry, command=0))
+        return ofmsgs
+
+    def del_meters(self, deleted_meters):
+        ofmsgs = []
+        if deleted_meters:
+            deleted_meter_ids = [
+                self.meters[meter_key].meter_id for meter_key in deleted_meters]
+            ofmsgs.extend([
+                valve_of.meterdel(deleted_meter_id) for deleted_meter_id in deleted_meter_ids])
         return ofmsgs
