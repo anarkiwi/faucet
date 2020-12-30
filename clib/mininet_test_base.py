@@ -56,6 +56,9 @@ class FaucetTestBase(unittest.TestCase):
     # Number of Gauge controllers to create
     NUM_GAUGE_CONTROLLERS = 1
 
+    # List of switches (by switch index) to ignore (treating them as outside the Faucet network)
+    IGNORED_SWITCHES = []
+
     CONTROLLER_CLASS = mininet_test_topo.FAUCET
 
     DP_NAME = 'faucet-1'
@@ -2225,7 +2228,6 @@ dbs:
         for i, controller in enumerate(self.faucet_controllers):
             cont_name = controller.name
             start_configure_count = start_configure_counts[i]
-            old_count = old_counts[i]
             for _ in range(timeout):
                 configure_count = self.get_configure_count(controller=cont_name)
                 if configure_count > start_configure_count:
@@ -2233,22 +2235,25 @@ dbs:
                 time.sleep(1)
             self.assertNotEqual(
                 start_configure_count, configure_count, 'FAUCET %s did not reconfigure' % cont_name)
-            if change_expected:
-                for _ in range(timeout):
+            if cold_start is not None:
+                old_count = old_counts[i]
+                if change_expected:
+                    old_count = old_counts[i]
+                    for _ in range(timeout):
+                        new_count = int(
+                            self.scrape_prometheus_var(var, controller=cont_name, dpid=dpid, default=0))
+                        if new_count > old_count:
+                            break
+                        time.sleep(1)
+                    self.assertTrue(
+                        new_count > old_count,
+                        msg='FAUCET %s %s did not increment: %u' % (cont_name, var, new_count))
+                else:
                     new_count = int(
                         self.scrape_prometheus_var(var, controller=cont_name, dpid=dpid, default=0))
-                    if new_count > old_count:
-                        break
-                    time.sleep(1)
-                self.assertTrue(
-                    new_count > old_count,
-                    msg='FAUCET %s %s did not increment: %u' % (cont_name, var, new_count))
-            else:
-                new_count = int(
-                    self.scrape_prometheus_var(var, controller=cont_name, dpid=dpid, default=0))
-                self.assertEqual(
-                    old_count, new_count,
-                    msg='FAUCET %s %s incremented: %u' % (cont_name, var, new_count))
+                    self.assertEqual(
+                        old_count, new_count,
+                        msg='FAUCET %s %s incremented: %u' % (cont_name, var, new_count))
             self.wait_for_prometheus_var('faucet_config_applied', 1, controller=cont_name, dpid=None, timeout=30)
             self.wait_dp_status(1, controller=cont_name)
 
@@ -2574,7 +2579,7 @@ dbs:
                 return
             time.sleep(1)
         if flow:
-            self.fail('flow %s matching %s table ID %s had zero packet count' % (flow, match, table_id))
+            self.fail('DPID %s flow %s matching %s table ID %s had zero packet count' % (dpid, flow, match, table_id))
         else:
             self.fail('no flow matching %s table ID %s' % (match, table_id))
 
