@@ -3,7 +3,7 @@
 set -euo pipefail
 
 APK="apk -q"
-BUILDDEPS="gcc python3-dev musl-dev parallel yaml-dev"
+BUILDDEPS="gcc python3-dev musl-dev parallel yaml-dev g++"
 TESTDEPS="bitstring pytest wheel virtualenv"
 PIP3="pip3 -q --no-cache-dir install --upgrade"
 FROOT="/faucet-src"
@@ -11,7 +11,7 @@ FROOT="/faucet-src"
 dir=$(dirname "$0")
 
 ${APK} add -U git ${BUILDDEPS}
-"${dir}/retrycmd.sh" "${PIP3} pip"
+"${dir}/retrycmd.sh" "${PIP3} -r pip-requirements.txt"
 "${dir}/retrycmd.sh" "${PIP3} setuptools ${TESTDEPS}"
 "${dir}/retrycmd.sh" "${PIP3} -r ${FROOT}/requirements.txt"
 ${PIP3} ${FROOT}

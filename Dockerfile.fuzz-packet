@@ -1,6 +1,6 @@
 ## Image name: faucet/packet-fuzzer
 
-FROM faucet/test-base:8.0.6
+FROM faucet/test-base:9.0.0
 
 ENV PIP3="pip3 -q --no-cache-dir install --upgrade"
 ENV PATH="/venv/bin:$PATH"
@@ -11,7 +11,8 @@ WORKDIR /faucet-src
 RUN \
   apt-get update && \
   apt-get install -y afl cython3 && \
-  $PIP3 pip setuptools && \
+  $PIP3 -r pip-requirements.txt && \
+  $PIP3 setuptools && \
   $PIP3 -r requirements.txt && \
   $PIP3 -r fuzz-requirements.txt && \
   $PIP3 .
