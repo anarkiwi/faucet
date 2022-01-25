@@ -1,9 +1,9 @@
 name: Build debian packages and images for release
 
 on:
-  release:
-    types:
-      - published
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
 
 env:
   DEBIAN_FRONTEND: noninteractive
@@ -12,8 +12,10 @@ jobs:
   debian-package:
     name: "Build debian packages"
     runs-on: ubuntu-latest
+    environment:
+      name: "release"
     container:
-      image: "ubuntu:bionic"
+      image: "debian:latest"
     steps:
       - name: Install dependencies
         run: |
@@ -23,7 +25,7 @@ jobs:
       - name: Enable faucet apt repo
         run: |
           echo "deb https://packagecloud.io/faucetsdn/faucet/$(lsb_release -si | awk '{print tolower($0)}')/ $(lsb_release -sc) main" | tee /etc/apt/sources.list.d/faucet.list
-          curl -L https://packagecloud.io/faucetsdn/faucet/gpgkey | apt-key add -
+          curl -1sLf https://packagecloud.io/faucetsdn/faucet/gpgkey -o /etc/apt/trusted.gpg.d/faucet.asc
           apt-get update
       - name: Checkout repo
         uses: actions/checkout@v2
@@ -31,7 +33,7 @@ jobs:
         run: |
           export DEBEMAIL='maintainers@faucet.nz'
           export DEBFULLNAME='Faucet Maintainers'
-          debchange --newversion ${{ github.event.release.tag_name }} -b "New upstream release"
+          debchange --newversion "${GITHUB_REF_NAME}" -b "New upstream release"
       - name: Build package
         run: |
           mk-build-deps -i -r -t 'apt-get -f -y --force-yes'
@@ -46,76 +48,3 @@ jobs:
           path: packages/
           repo: faucetsdn/faucet
           token: ${{ secrets.PACKAGECLOUD_TOKEN }}
-
-  vm-image:
-    name: "Build VM image"
-    runs-on: ubuntu-latest
-    container:
-      image: "ubuntu:focal"
-      options: --privileged
-    needs: debian-package
-    steps:
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get -y upgrade
-          apt-get -y install locate python3-pip qemu-utils kpartx squashfs-tools debootstrap procps wget sudo git
-          pip3 install diskimage-builder
-      - name: Checkout repo
-        uses: actions/checkout@v2
-      - name: Build image
-        run: |
-          cd images/vm/
-          ./build-faucet-vm.sh
-      - name: Upload release asset
-        id: upload-release-asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ./images/vm/faucet-amd64-${{ github.event.release.tag_name }}.qcow2
-          asset_name: faucet-amd64-${{ github.event.release.tag_name }}.qcow2
-          asset_content_type: application/octet-stream
-
-  rpi-image:
-    name: "Build raspberry pi image"
-    runs-on: ubuntu-latest
-    container:
-      image: "ubuntu:bionic"
-      options: --privileged
-    needs: debian-package
-    steps:
-      - name: Install dependencies
-        run: |
-          dpkg --add-architecture i386
-          apt-get update
-          apt-get -y upgrade
-          apt-get install -y coreutils quilt parted qemu-user-static:i386 debootstrap zerofree zip dosfstools libarchive-tools libcap2-bin grep rsync xz-utils file git curl bc xxd kmod binfmt-support
-          /usr/sbin/update-binfmts --enable
-      - name: Checkout repo
-        uses: actions/checkout@v2
-      - name: Install pi-gen
-        run: |
-          cd images/raspbian/
-          git clone https://github.com/RPi-Distro/pi-gen.git
-          cd pi-gen
-          mv ../install-faucet.sh ./stage2/01-sys-tweaks/02-install-faucet.sh
-      - name: Build image
-        run: |
-          cd images/raspbian/pi-gen/
-          echo "IMG_NAME='faucet_${{ github.event.release.tag_name }}_raspbian'" > config
-          touch ./stage3/SKIP ./stage4/SKIP ./stage5/SKIP
-          touch ./stage4/SKIP_IMAGES ./stage5/SKIP_IMAGES
-          ./build.sh
-          mv ./deploy/image_*_raspbian-lite.zip ./deploy/faucet_${{ github.event.release.tag_name }}_raspbian-lite.zip
-      - name: Upload release asset
-        id: upload-release-asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ./images/raspbian/pi-gen/deploy/faucet_${{ github.event.release.tag_name }}_raspbian-lite.zip
-          asset_name: faucet_${{ github.event.release.tag_name }}_raspbian-lite.zip
-          asset_content_type: application/zip

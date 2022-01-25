@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 """Launch forwarder script for Faucet/Gauge"""
 
@@ -22,17 +22,12 @@ import argparse
 import os
 import sys
 
-if sys.version_info < (3,):
+from pbr.version import VersionInfo
+
+if sys.version_info < (3,) or sys.version_info < (3, 5):
     raise ImportError("""You are trying to run faucet on python {py}
 
-Faucet is not compatible with python 2, please upgrade to python 3.5 or newer."""
-                      .format(py='.'.join([str(v) for v in sys.version_info[:3]])))
-elif sys.version_info < (3, 5):
-    raise ImportError("""You are trying to run faucet on python {py}
-
-Faucet 1.9.0 and above are no longer compatible with older versions of python 3.
-
-Please upgrade to python 3.5 or newer."""
+Faucet is not compatible with python {py}, please upgrade to python 3.5 or newer."""
                       .format(py='.'.join([str(v) for v in sys.version_info[:3]])))
 
 RYU_OPTIONAL_ARGS = [
@@ -62,8 +57,6 @@ RYU_OPTIONAL_ARGS = [
     ('ofp-tcp-listen-port', 'openflow tcp listen port (default: 6653)'),
     ('pid-file', 'pid file name'),
     ('user-flags', 'Additional flags file for user applications'),
-    ('wsapi-host', 'webapp listen host (default 0.0.0.0)'),
-    ('wsapi-port', 'webapp listen port (default 8080)')
 ]
 
 
@@ -86,7 +79,7 @@ def parse_args(sys_args):
     args.add_argument(
         '--use-syslog', action='store_true', help='output to syslog')
     args.add_argument(
-        '--ryu-app',
+        '--ryu-app-lists',
         action='append',
         help='add Ryu app (can be specified multiple times)',
         metavar='APP')
@@ -107,7 +100,6 @@ def parse_args(sys_args):
 
 def print_version():
     """Print version number and exit."""
-    from pbr.version import VersionInfo
     version = VersionInfo('faucet').semantic_version().release_string()
     message = 'Faucet %s' % version
     print(message)
@@ -137,7 +129,7 @@ def build_ryu_args(argv):
     for arg, val in vars(args).items():
         if not val or not arg.startswith('ryu'):
             continue
-        if arg == 'ryu_app':
+        if arg == 'ryu_app_lists':
             continue
         if arg == 'ryu_config_file' and not os.path.isfile(val):
             continue
@@ -151,11 +143,11 @@ def build_ryu_args(argv):
         ryu_args.append('faucet.faucet')
 
     # Check for additional Ryu apps.
-    if args.ryu_app:
-        ryu_args.extend(args.ryu_app)
+    if args.ryu_app_lists:
+        ryu_args.extend(args.ryu_app_lists)
 
     # Replace current process with ryu-manager from PATH (no PID change).
-    ryu_args.insert(0, 'ryu-manager')
+    ryu_args.insert(0, 'osken-manager')
     return ryu_args
 
 

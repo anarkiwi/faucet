@@ -1,14 +1,16 @@
 name: Build docker images for release
 
 on:
-  release:
-    types:
-      - published
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
 
 jobs:
   faucet-docker-image:
     name: "Build faucet docker image"
     runs-on: ubuntu-latest
+    environment:
+      name: "release"
     steps:
       - name: Checkout repo
         uses: actions/checkout@v2
@@ -27,7 +29,7 @@ jobs:
       - name: Run buildx
         run: |
           docker buildx build \
-            --tag faucet/faucet:${{ github.event.release.tag_name }} \
+            --tag "faucet/faucet:${GITHUB_REF_NAME}" \
             --tag faucet/faucet:latest \
             --platform linux/386,linux/amd64,linux/arm/v6,linux/arm/v7,linux/arm64/v8,linux/ppc64le,linux/s390x \
             --output "type=registry" \
@@ -37,6 +39,8 @@ jobs:
   gauge-docker-image:
     name: "Build gauge docker image"
     runs-on: ubuntu-latest
+    environment:
+      name: "release"
     needs: faucet-docker-image
     steps:
       - name: Checkout repo
@@ -56,7 +60,7 @@ jobs:
       - name: Run buildx
         run: |
           docker buildx build \
-            --tag faucet/gauge:${{ github.event.release.tag_name }} \
+            --tag "faucet/gauge:${GITHUB_REF_NAME}" \
             --tag faucet/gauge:latest \
             --platform linux/386,linux/amd64,linux/arm/v6,linux/arm/v7,linux/arm64/v8,linux/ppc64le,linux/s390x \
             --output "type=registry" \
@@ -66,6 +70,8 @@ jobs:
   rabbitmq-adapter-docker-image:
     name: "Build rabbitmq adapter docker image"
     runs-on: ubuntu-latest
+    environment:
+      name: "release"
     steps:
       - name: Checkout repo
         uses: actions/checkout@v2
@@ -85,7 +91,7 @@ jobs:
         run: |
           cd adapters/vendors/rabbitmq/
           docker buildx build \
-            --tag faucet/event-adapter-rabbitmq:${{ github.event.release.tag_name }} \
+            --tag "faucet/event-adapter-rabbitmq:${GITHUB_REF_NAME}" \
             --tag faucet/event-adapter-rabbitmq:latest \
             --platform linux/386,linux/amd64,linux/arm/v6,linux/arm/v7,linux/arm64/v8,linux/ppc64le,linux/s390x \
             --output "type=registry" \
@@ -95,6 +101,8 @@ jobs:
   faucetagent-adapter-docker-image:
     name: "Build faucetagent adapter docker image"
     runs-on: ubuntu-latest
+    environment:
+      name: "release"
     steps:
       - name: Checkout repo
         uses: actions/checkout@v2
@@ -114,7 +122,7 @@ jobs:
         run: |
           cd adapters/vendors/faucetagent/
           docker buildx build \
-            --tag faucet/event-adapter-faucetagent:${{ github.event.release.tag_name }} \
+            --tag "faucet/event-adapter-faucetagent:${GITHUB_REF_NAME}" \
             --tag faucet/event-adapter-faucetagent:latest \
             --platform linux/amd64 \
             --output "type=registry" \

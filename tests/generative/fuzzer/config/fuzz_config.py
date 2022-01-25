@@ -22,7 +22,7 @@ conf_file_name = os.path.join(tmpdir, 'faucet.yaml')
 
 def create_config_file(config):
     """Create config file with given contents."""
-    with open(conf_file_name, 'w') as conf_file:
+    with open(conf_file_name, 'w', encoding='utf-8') as conf_file:
         conf_file.write(config)
     return conf_file_name
 
@@ -33,11 +33,10 @@ def main():
     while afl.loop(ROUNDS):  # pylint: disable=c-extension-no-member
         config = sys.stdin.read()
         file_name = create_config_file(config)
-        with open(file_name, 'r') as conf_file:
-            try:
-                cp.dp_parser(file_name, LOGNAME)
-            except InvalidConfigError:
-                pass
+        try:
+            cp.dp_parser(file_name, LOGNAME)
+        except InvalidConfigError:
+            pass
 
 
 if __name__ == "__main__":

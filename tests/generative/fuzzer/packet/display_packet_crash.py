@@ -4,7 +4,7 @@
 
 
 import sys
-from ryu.controller import dpset
+from os_ken.controller import dpset
 from faucet import faucet
 import fake_packet
 
@@ -12,7 +12,7 @@ import fake_packet
 def main():
     """Shows the crash in the FAUCET log produced by given input."""
 
-    with open(sys.argv[1]) as pkt:
+    with open(sys.argv[1], encoding='utf-8') as pkt:
         packet_data = str(pkt.read())
 
     # start faucet

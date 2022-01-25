@@ -1,4 +1,4 @@
-"""RyuApp shim between Ryu and Valve."""
+"""OSKenApp shim between Ryu and Valve."""
 
 # Copyright (C) 2013 Nippon Telegraph and Telephone Corporation.
 # Copyright (C) 2015 Brad Cowie, Christopher Lorier and Joe Stringer.
@@ -18,19 +18,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# pylint: disable=using-constant-test,wrong-import-order,wrong-import-position
+import eventlet
+if True:                # A trick to satisfy linting for E402
+    eventlet.monkey_patch()
+
 import time
 
 from functools import partial
 
-from ryu.controller.handler import CONFIG_DISPATCHER
-from ryu.controller.handler import MAIN_DISPATCHER
-from ryu.controller.handler import set_ev_cls
-from ryu.controller import dpset
-from ryu.controller import event
-from ryu.controller import ofp_event
-from ryu.lib import hub
+from os_ken.controller.handler import CONFIG_DISPATCHER
+from os_ken.controller.handler import MAIN_DISPATCHER
+from os_ken.controller.handler import set_ev_cls
+from os_ken.controller import dpset
+from os_ken.controller import event
+from os_ken.controller import ofp_event
+from os_ken.lib import hub
 
-from faucet.valve_ryuapp import EventReconfigure, RyuAppBase
+from faucet.valve_ryuapp import EventReconfigure, OSKenAppBase
 from faucet.valve_util import dpid_log, kill_on_exception
 from faucet import faucet_event
 from faucet import faucet_bgp
@@ -72,18 +77,20 @@ class EventFaucetFastAdvertise(event.EventBase):  # pylint: disable=too-few-publ
 
 
 class EventFaucetEventSockHeartbeat(event.EventBase):  # pylint: disable=too-few-public-methods
-    """Event used to trigger periodic events on event sock, causing it to raise an exception if conn is broken."""
+    """Event used to trigger periodic events on event sock,
+    causing it to raise an exception if conn is broken.
+    """
 
 
-class Faucet(RyuAppBase):
-    """A RyuApp that implements an L2/L3 learning VLAN switch.
+class Faucet(OSKenAppBase):
+    """A OSKenApp that implements an L2/L3 learning VLAN switch.
 
     Valve provides the switch implementation; this is a shim for the Ryu
     event handling framework to interface with Valve.
     """
     _CONTEXTS = {
         'dpset': dpset.DPSet,
-        }
+    }
     _VALVE_SERVICES = {
         EventFaucetMetricUpdate: (None, 5),
         EventFaucetResolveGateways: ('resolve_gateways', 2),
@@ -114,10 +121,13 @@ class Faucet(RyuAppBase):
         self.thread_managers = (self.bgp, self.dot1x, self.prom_client, self.notifier)
         self.event_sock_hrtbeat_time = int(self.get_setting('EVENT_SOCK_HEARTBEAT') or 0)
         if self.event_sock_hrtbeat_time > 0:
-            self._VALVE_SERVICES[EventFaucetEventSockHeartbeat] = ('event_sock_heartbeat', self.event_sock_hrtbeat_time)
-        self.stack_root_state_update_time = int(self.get_setting('STACK_ROOT_STATE_UPDATE_TIME') or 0)
+            self._VALVE_SERVICES[EventFaucetEventSockHeartbeat] = ('event_sock_heartbeat',
+                                                                   self.event_sock_hrtbeat_time)
+        self.stack_root_state_update_time = int(
+            self.get_setting('STACK_ROOT_STATE_UPDATE_TIME') or 0)
         if self.stack_root_state_update_time:
-            self._VALVE_SERVICES[EventFaucetMaintainStackRoot] = (None, self.stack_root_state_update_time)
+            self._VALVE_SERVICES[EventFaucetMaintainStackRoot] = (None,
+                                                                  self.stack_root_state_update_time)
 
     @kill_on_exception(exc_logname)
     def _check_thread_exception(self):
@@ -217,7 +227,7 @@ class Faucet(RyuAppBase):
     @set_ev_cls(EventFaucetEventSockHeartbeat, MAIN_DISPATCHER)
     @kill_on_exception(exc_logname)
     def _event_socket_heartbeat(self, _):
-        self.valves_manager.event_socket_heartbeat(time.time())
+        self.valves_manager.event_socket_heartbeat()
 
     @set_ev_cls(EventFaucetResolveGateways, MAIN_DISPATCHER)
     @set_ev_cls(EventFaucetStateExpire, MAIN_DISPATCHER)
@@ -231,7 +241,7 @@ class Faucet(RyuAppBase):
             time.time(),
             self._VALVE_SERVICES[type(ryu_event)][0])
 
-    @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER) # pylint: disable=no-member
+    @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)  # pylint: disable=no-member
     @kill_on_exception(exc_logname)
     def packet_in_handler(self, ryu_event):
         """Handle a packet in event from the dataplane.
@@ -244,7 +254,7 @@ class Faucet(RyuAppBase):
             return
         self.valves_manager.valve_packet_in(ryu_event.timestamp, valve, msg)
 
-    @set_ev_cls(ofp_event.EventOFPErrorMsg, MAIN_DISPATCHER) # pylint: disable=no-member
+    @set_ev_cls(ofp_event.EventOFPErrorMsg, MAIN_DISPATCHER)  # pylint: disable=no-member
     @kill_on_exception(exc_logname)
     def error_handler(self, ryu_event):
         """Handle an OFPError from a datapath.
@@ -257,7 +267,7 @@ class Faucet(RyuAppBase):
             return
         valve.oferror(msg)
 
-    @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER) # pylint: disable=no-member
+    @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)  # pylint: disable=no-member
     @kill_on_exception(exc_logname)
     def features_handler(self, ryu_event):
         """Handle receiving a switch features message from a datapath.
@@ -283,8 +293,8 @@ class Faucet(RyuAppBase):
             return
         discovered_up_ports = {
             port.port_no for port in list(ryu_dp.ports.values())
-            if (valve_of.port_status_from_state(port.state) and
-                not valve_of.ignore_port(port.port_no))}
+            if (valve_of.port_status_from_state(port.state)
+                and not valve_of.ignore_port(port.port_no))}
         self._send_flow_msgs(
             valve, self.valves_manager.datapath_connect(now, valve, discovered_up_ports))
         self.valves_manager.update_config_applied({valve.dp.dp_id: True})
@@ -301,7 +311,7 @@ class Faucet(RyuAppBase):
             return
         valve.datapath_disconnect(time.time())
 
-    @set_ev_cls(ofp_event.EventOFPDescStatsReply, MAIN_DISPATCHER) # pylint: disable=no-member
+    @set_ev_cls(ofp_event.EventOFPDescStatsReply, MAIN_DISPATCHER)  # pylint: disable=no-member
     @kill_on_exception(exc_logname)
     def desc_stats_reply_handler(self, ryu_event):
         """Handle OFPDescStatsReply from datapath.
@@ -314,7 +324,20 @@ class Faucet(RyuAppBase):
             return
         valve.ofdescstats_handler(msg.body)
 
-    @set_ev_cls(ofp_event.EventOFPPortStatus, MAIN_DISPATCHER) # pylint: disable=no-member
+    @set_ev_cls(ofp_event.EventOFPPortDescStatsReply, CONFIG_DISPATCHER)  # pylint: disable=no-member
+    @kill_on_exception(exc_logname)
+    def port_desc_stats_reply_handler(self, ryu_event):
+        """Handle OFPPortDescStatsReply from datapath.
+
+        Args:
+            ryu_event (ryu.controller.ofp_event.EventOFPPortDescStatsReply): trigger.
+        """
+        valve, _, msg = self._get_valve(ryu_event)
+        if valve is None:
+            return
+        self.valves_manager.port_desc_stats_reply_handler(valve, msg, time.time())
+
+    @set_ev_cls(ofp_event.EventOFPPortStatus, MAIN_DISPATCHER)  # pylint: disable=no-member
     @kill_on_exception(exc_logname)
     def port_status_handler(self, ryu_event):
         """Handle a port status change event.
@@ -327,7 +350,7 @@ class Faucet(RyuAppBase):
             return
         self.valves_manager.port_status_handler(valve, msg, time.time())
 
-    @set_ev_cls(ofp_event.EventOFPFlowRemoved, MAIN_DISPATCHER) # pylint: disable=no-member
+    @set_ev_cls(ofp_event.EventOFPFlowRemoved, MAIN_DISPATCHER)  # pylint: disable=no-member
     @kill_on_exception(exc_logname)
     def flowremoved_handler(self, ryu_event):
         """Handle a flow removed event.

@@ -19,45 +19,29 @@
 import hashlib
 import logging
 import os
-# pytype: disable=pyi-error
-import yaml
-from yaml.constructor import ConstructorError
-
-# handle libyaml-dev not installed
-try:
-    from yaml import CLoader as Loader # type: ignore
-except ImportError:
-    from yaml import Loader
+from io import StringIO
+from ruamel.yaml import YAML
+from ruamel.yaml.constructor import DuplicateKeyError
+from ruamel.yaml.scanner import ScannerError
+from ruamel.yaml.composer import ComposerError
+from ruamel.yaml.constructor import ConstructorError
+from ruamel.yaml.parser import ParserError
 
 CONFIG_HASH_FUNC = 'sha256'
 
 
-class UniqueKeyLoader(Loader):  # pylint: disable=too-many-ancestors
-    """YAML loader that will reject duplicate/overwriting keys."""
-
-    def construct_mapping(self, node, deep=False):
-        """Check for duplicate YAML keys."""
-        try:
-            key_value_pairs = [
-                (self.construct_object(key_node, deep=deep),
-                 self.construct_object(value_node, deep=deep))
-                for key_node, value_node in node.value]
-        except TypeError as err:
-            raise ConstructorError('invalid key type: %s' % err)
-        mapping = {}
-        for key, value in key_value_pairs:
-            try:
-                if key in mapping:
-                    raise ConstructorError('duplicate key: %s' % key)
-            except TypeError:
-                raise ConstructorError('unhashable key: %s' % key)
-            mapping[key] = value
-        return mapping
+def yaml_load(yaml_str):
+    """Wrap YAML load library."""
+    yml = YAML(typ='safe')
+    return yml.load(yaml_str)
 
 
-yaml.SafeLoader.add_constructor(
-    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
-    UniqueKeyLoader.construct_mapping)
+def yaml_dump(yaml_dict):
+    """Wrap YAML dump library."""
+    with StringIO() as stream:
+        yml = YAML(typ='safe')
+        yml.dump(yaml_dict, stream=stream)
+        return stream.getvalue()
 
 
 def get_logger(logname):
@@ -72,14 +56,15 @@ def read_config(config_file, logname):
     conf = None
 
     try:
-        with open(config_file, 'r') as stream:
+        with open(config_file, 'r', encoding='utf-8') as stream:
             conf_txt = stream.read()
-        conf = yaml.safe_load(conf_txt)
-    except (yaml.YAMLError, UnicodeDecodeError,
-            PermissionError, ValueError) as err: # pytype: disable=name-error
+        conf = yaml_load(conf_txt)
+    except (TypeError, UnicodeDecodeError, PermissionError, ValueError,
+            ScannerError, DuplicateKeyError, ComposerError,
+            ConstructorError, ParserError) as err:  # pytype: disable=name-error
         logger.error('Error in file %s (%s)', config_file, str(err))
-    except FileNotFoundError as err: # pytype: disable=name-error
-        logger.error('Could not find requested file: %s', config_file)
+    except FileNotFoundError as err:  # pytype: disable=name-error
+        logger.error('Could not find requested file: %s (%s)', config_file, str(err))
     return conf, conf_txt
 
 
@@ -91,7 +76,7 @@ def config_hash_content(content):
 
 def config_file_hash(config_file_name):
     """Return hash of YAML config file contents."""
-    with open(config_file_name) as config_file:
+    with open(config_file_name, encoding='utf-8') as config_file:
         return config_hash_content(config_file.read())
 
 

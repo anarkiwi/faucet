@@ -23,7 +23,7 @@ import json
 import gzip
 import time
 
-from ryu.ofproto import ofproto_v1_3 as ofp
+from os_ken.ofproto import ofproto_v1_3 as ofp
 
 from faucet.conf import InvalidConfigError
 from faucet.valve_util import dpid_log
@@ -43,34 +43,34 @@ def watcher_factory(conf):
         conf (GaugeConf): object with the configuration for this valve.
     """
 
-    WATCHER_TYPES = {
+    watcher_types = {
         'port_state': {
             'text': GaugePortStateLogger,
             'influx': GaugePortStateInfluxDBLogger,
             'prometheus': GaugePortStatePrometheusPoller,
-            },
+        },
         'port_stats': {
             'text': GaugePortStatsLogger,
             'influx': GaugePortStatsInfluxDBLogger,
             'prometheus': GaugePortStatsPrometheusPoller,
-            },
+        },
         'flow_table': {
             'text': GaugeFlowTableLogger,
             'influx': GaugeFlowTableInfluxDBLogger,
             'prometheus': GaugeFlowTablePrometheusPoller,
-            },
+        },
         'meter_stats': {
             'text': GaugeMeterStatsLogger,
             'prometheus': GaugeMeterStatsPrometheusPoller,
-            },
+        },
     }
 
     w_type = conf.type
     db_type = conf.db_type
     try:
-        return WATCHER_TYPES[w_type][db_type]
-    except KeyError:
-        raise InvalidConfigError('invalid water config')
+        return watcher_types[w_type][db_type]
+    except KeyError as key_error:
+        raise InvalidConfigError('invalid water config') from key_error
 
 
 class GaugePortStateLogger(GaugePortStatePoller):
@@ -94,24 +94,22 @@ class GaugePortStateLogger(GaugePortStatePoller):
         log_msg = '%s %s' % (dpid_log(self.dp.dp_id), log_msg)
         self.logger.info(log_msg)
         if self.conf.file:
-            with open(self.conf.file, 'a') as logfile:
+            with open(self.conf.file, 'a', encoding='utf-8') as logfile:
                 logfile.write('\t'.join((rcv_time_str, log_msg)) + '\n')
 
-    @staticmethod
-    def send_req():
+    def send_req(self):
         """Send a stats request to a datapath."""
-        raise NotImplementedError # pragma: no cover
+        raise NotImplementedError  # pragma: no cover
 
-    @staticmethod
-    def no_response():
+    def no_response(self):
         """Called when a polling cycle passes without receiving a response."""
-        raise NotImplementedError # pragma: no cover
+        raise NotImplementedError  # pragma: no cover
 
 
 class GaugePortStatsLogger(GaugePortStatsPoller):
     """Abstraction for port statistics logger."""
 
-    def _dp_stat_name(self, stat, stat_name):  # pylint: disable=arguments-differ
+    def _dp_stat_name(self, stat, stat_name):
         port_name = self.dp.port_labels(stat.port_no)['port']
         return '-'.join((self.dp.name, port_name, stat_name))
 
@@ -129,7 +127,7 @@ class GaugeMeterStatsLogger(GaugeMeterStatsPoller):
             (('packet', 'band', 'count'), band_stats.packet_band_count))
         return self._format_stats(delim, stat_pairs)
 
-    def _dp_stat_name(self, stat, stat_name):  # pylint: disable=arguments-differ
+    def _dp_stat_name(self, stat, stat_name):
         return '-'.join((self.dp.name, str(stat.meter_id), stat_name))
 
 
@@ -155,7 +153,7 @@ class GaugeFlowTableLogger(GaugeFlowTablePoller):
         filename = os.path.join(
             path,
             "{}--flowtable--{}.json".format(self.dp.name, rcv_time_str)
-            )
+        )
         if os.path.isfile(filename):
             # If this filename already exists, add an increment to the filename
             # (for dealing with parts of a multipart message arriving at the same time)
@@ -169,5 +167,5 @@ class GaugeFlowTableLogger(GaugeFlowTablePoller):
             with gzip.open(filename, 'wt') as outfile:
                 outfile.write(json.dumps(msg.to_jsondict()))
         else:
-            with open(filename, 'w') as outfile:
+            with open(filename, 'w', encoding='utf-8') as outfile:
                 json.dump(msg.to_jsondict(), outfile, indent=2)

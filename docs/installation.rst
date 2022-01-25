@@ -14,8 +14,6 @@ More advanced methods of installing faucet are also available here:
   1. :ref:`faucet-apt-install`
   2. :ref:`faucet-docker-install`
   3. :ref:`faucet-pip-install`
-  4. :ref:`faucet-raspbian-install`
-  5. :ref:`faucet-vm-install`
 
 .. _faucet-apt-install:
 
@@ -37,16 +35,28 @@ faucet-all-in-one Install faucet, gauge, prometheus and grafana. Easy to use and
 ================= ==========================================================================================================
 
 
-Installation on Debian/Raspbian 9+ and Ubuntu 16.04+
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Installation on Debian/Raspbian/Raspberry Pi OS and Ubuntu
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The apt repo supports the following distro versions:
+
+ * Debian 10+
+ * Raspbian 10+
+ * Raspberry Pi OS 11+
+ * Ubuntu 18.04+
+
+The following architectures are supported for each distro:
+
+ * amd64
+ * armhf
+ * arm64
 
 .. code:: console
 
   sudo apt-get install curl gnupg apt-transport-https lsb-release
   echo "deb https://packagecloud.io/faucetsdn/faucet/$(lsb_release -si | awk '{print tolower($0)}')/ $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/faucet.list
-  curl -L https://packagecloud.io/faucetsdn/faucet/gpgkey | sudo apt-key add -
+  sudo curl -1sLf https://packagecloud.io/faucetsdn/faucet/gpgkey -o /etc/apt/trusted.gpg.d/faucet.asc
   sudo apt-get update
-
 
 Then to install all components for a fully functioning system on a single machine:
 
@@ -256,13 +266,11 @@ You can install the latest pip package, or you can install directly from git via
 Installing faucet
 ~~~~~~~~~~~~~~~~~
 
-First, install some python dependencies:
+First, ensure python3 is installed:
 
 .. code:: console
 
-  apt-get install python3-dev python3-pip
-  pip3 install setuptools
-  pip3 install wheel
+  apt-get install python3 python3-pip
 
 Then install the latest stable release of faucet from pypi, via pip:
 
@@ -274,6 +282,7 @@ Or, install the latest development code from git, via pip:
 
 .. code:: console
 
+  apt-get install git
   pip3 install git+https://github.com/faucetsdn/faucet.git
 
 Starting faucet manually
@@ -331,113 +340,3 @@ Systemd can be used to start Faucet and Gauge at boot automatically:
   :language: shell
   :caption: gauge.service
   :name: gauge.service
-
-.. _faucet-raspbian-install:
-
-Installing on Raspberry Pi
---------------------------
-
-We provide a Raspberry Pi image running FAUCET which can be retrieved from the
-`latest faucet release <https://github.com/faucetsdn/faucet/releases/latest>`_
-page on GitHub. Download the faucet_VERSION_raspbian-lite.zip file.
-
-The image can then be copied onto an SD card following the same steps from the
-official `Raspberry Pi installation guide <https://www.raspberrypi.org/documentation/installation/installing-images/linux.md>`_.
-
-Once you have booted up the Raspberry Pi and logged in using the default
-credentials (username: pi, password: raspberry) you can follow through
-the :doc:`../tutorials/first_time` tutorial starting from
-:ref:`tutorial-configure-prometheus` to properly configure each component.
-
-.. note::
-	It is strongly recommended to use a Raspberry Pi 3 or better.
-
-.. _faucet-vm-install:
-
-Installing with Virtual Machine image
--------------------------------------
-
-We provide a VM image for running FAUCET for development and learning purposes.
-The VM comes pre-installed with FAUCET, GAUGE, prometheus and grafana.
-
-Openstack's `diskimage-builder <https://docs.openstack.org/diskimage-builder/latest/>`_
-(DIB) is used to build the VM images in many formats (qcow2,tgz,squashfs,vhd,raw).
-
-Downloading pre-built images
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Pre-built images are available on github, see the `latest faucet release <https://github.com/faucetsdn/faucet/releases/latest>`_
-page on GitHub and download the faucet-amd64-VERSION.qcow2 file.
-
-Building the images
-~~~~~~~~~~~~~~~~~~~
-
-If you don't want to use our `pre-built images <https://github.com/faucetsdn/faucet/releases/latest>`_, you can build them yourself:
-
-1. `Install the latest disk-image-builder <https://docs.openstack.org/diskimage-builder/latest/user_guide/installation.html>`_
-2. Run build-faucet-vm.sh from the ``images/vm/`` directory.
-
-Security considerations
-~~~~~~~~~~~~~~~~~~~~~~~
-
-This VM is not secure by default, it includes no firewall and has a number of
-network services listening on all interfaces with weak passwords. It also
-includes a backdoor user (faucet) with weak credentials.
-
-**Services**
-
-The VM exposes a number of ports listening on all interfaces by default:
-
-======================== ====
-Service                  Port
-======================== ====
-SSH                      22
-Faucet OpenFlow Channel  6653
-Gauge OpenFlow Channel   6654
-Grafana Web Interface    3000
-Prometheus Web Interface 9090
-======================== ====
-
-**Default Credentials**
-
-===================== ======== ========
-Service               Username Password
-===================== ======== ========
-VM TTY Console        faucet   faucet
-SSH                   faucet   faucet
-Grafana Web Interface admin    admin
-===================== ======== ========
-
-Post-install steps
-~~~~~~~~~~~~~~~~~~
-
-Grafana comes installed but unconfigured, you will need to login to the grafana
-web interface at ``http://VM_IP:3000`` and configure a data source and some dashboards.
-
-After logging in with the default credentials shown above, the first step is to add a `prometheus data source <https://prometheus.io/docs/visualization/grafana/#creating-a-prometheus-data-source>`_,
-use the following settings then click ``Save & Test``:
-
-  ::
-
-      Name:   Prometheus
-      Type:   Prometheus
-      URL:    http://localhost:9090
-
-Next we want to add some dashboards so that we can later view the metrics
-from faucet.
-
-Hover over the ``+`` button on the left sidebar in the web interface
-and click ``Import``.
-
-We will import the following dashboards, just download the following
-links and upload them through the grafana dashboard import screen:
-
-* `Instrumentation <_static/grafana-dashboards/faucet_instrumentation.json>`_
-* `Inventory <_static/grafana-dashboards/faucet_inventory.json>`_
-* `Port Statistics <_static/grafana-dashboards/faucet_port_statistics.json>`_
-
-You will need to supply your own faucet.yaml and gauge.yaml configuration in the VM.
-There are samples provided at /etc/faucet/faucet.yaml and /etc/faucet/gauge.yaml.
-
-Finally you will need to point one of the supported OpenFlow vendors at the controller VM,
-port 6653 is the Faucet OpenFlow control channel and 6654 is the Gauge OpennFlow control channel for monitoring.

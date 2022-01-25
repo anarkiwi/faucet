@@ -19,13 +19,12 @@
 import random
 import string
 
-import yaml
-
 from mininet.log import output
 from mininet.topo import Topo
 
 from clib import mininet_test_util
 from clib.mininet_test_topo import FaucetHost, VLANHost, FaucetSwitch, NoControllerFaucetSwitch
+from clib.valve_test_lib import yaml_dump
 
 
 class GenerationError(Exception):
@@ -134,30 +133,35 @@ class FaucetTopoGenerator(Topo):
             if dpid not in self.dpids_by_id.values():
                 return str(dpid)
 
-    def vlan_name(self, i):
+    @staticmethod
+    def vlan_name(i):
         """VLAN name"""
-        return 'vlan-%i' % (i+1)
+        return 'vlan-%i' % (i + 1)
 
     @staticmethod
     def vlan_vid(i):
         """VLAN VID value"""
-        return (i+1) * 100
+        return (i + 1) * 100
 
-    def router_name(self, i):
+    @staticmethod
+    def router_name(i):
         """Router name"""
-        return 'router-%s' % (i+1)
+        return 'router-%s' % (i + 1)
 
     def __init__(self, *args, **kwargs):
         self.switches_by_id = {}
         self.dpids_by_id = {}
         self.hosts_by_id = {}
+        self.num_dps = None
+        self.descending_dpids = None
         super().__init__(*args, **kwargs)
 
     @staticmethod
     def _get_sid_prefix(ports_served):
         """Return a unique switch/host prefix for a test."""
         # Linux tools require short interface names.
-        id_chars = ''.join(sorted(string.ascii_letters + string.digits))  # pytype: disable=module-attr
+        id_chars = ''.join(sorted(  # pytype: disable=module-attr
+            string.ascii_letters + string.digits))
         id_a = int(ports_served / len(id_chars))
         id_b = ports_served - (id_a * len(id_chars))
         return '%s%s' % (
@@ -336,11 +340,13 @@ class FaucetTopoGenerator(Topo):
                 switch_name = self.switches_by_id[dp_i]
                 self._add_link(switch_name, host_name, vlans)
 
+    # pylint: disable=arguments-differ
     def build(self, ovs_type, ports_sock, test_name, num_dps, descending_dpids,
               host_links, host_vlans, switch_links, link_vlans,
               hw_dpid=None, hw_ports=None,
               port_order=None, start_port=5,
-              get_serialno=mininet_test_util.get_serialno, host_options=None):
+              get_serialno=mininet_test_util.get_serialno,
+              host_options=None):
         """
         Creates a Faucet mininet topology
 
@@ -360,9 +366,9 @@ class FaucetTopoGenerator(Topo):
             host_options (dict): Host index map to additional mininet host options
         """
         # Additional test generation information
-        self.ovs_type = ovs_type  # pylint: disable=attribute-defined-outside-init
-        self.ports_sock = ports_sock  # pylint: disable=attribute-defined-outside-init
-        self.test_name = test_name  # pylint: disable=attribute-defined-outside-init
+        self.ovs_type = ovs_type
+        self.ports_sock = ports_sock
+        self.test_name = test_name
         self.get_serialno = get_serialno
         self.num_dps = num_dps
         self.descending_dpids = descending_dpids
@@ -383,7 +389,8 @@ class FaucetTopoGenerator(Topo):
         self.add_switch_topology(switch_links, link_vlans)
         self.add_host_topology(host_links, host_vlans)
 
-    def get_acls_config(self, acl_options):
+    @staticmethod
+    def get_acls_config(acl_options):
         """Return the ACLs in dictionary format for the configuration file"""
         return acl_options.copy()
 
@@ -393,7 +400,7 @@ class FaucetTopoGenerator(Topo):
 
         def get_interface_config(link_name, src_port, dst_node, dst_port, vlans, options, ignored):
             interface_config = {}
-            type_ = 'switch-switch' if dst_port else 'switch-host'
+            _type = 'switch-switch' if dst_port else 'switch-host'
             if ignored:
                 # Link is to an outside network, so treat it as a output only link with more
                 #   specific options defined in the options dictionary
@@ -432,7 +439,7 @@ class FaucetTopoGenerator(Topo):
                     'description': 'output only %s' % link_name,
                 }
             else:
-                raise GenerationError('Unknown %s link type %s' % (type_, vlans))
+                raise GenerationError('Unknown %s link type %s' % (_type, vlans))
             if options:
                 for option_key, option_value in options.items():
                     interface_config[option_key] = option_value
@@ -468,7 +475,8 @@ class FaucetTopoGenerator(Topo):
                     options = host_options[host_n]
             dp_config['interfaces'].setdefault(  # pytype: disable=attribute-error
                 src_port,
-                get_interface_config(link_name, src_port, dst_node, dst_port, vlans, options, ignored))
+                get_interface_config(
+                    link_name, src_port, dst_node, dst_port, vlans, options, ignored))
 
         for links in self.links(withKeys=True, withInfo=True):
             src_node, dst_node, link_key, link_info = links
@@ -564,8 +572,9 @@ class FaucetTopoGenerator(Topo):
             config['routers'] = self.get_routers_config(routers, router_options)
         if ignored_switches is None:
             ignored_switches = []
-        config['dps'] = self.get_dps_config(dp_options, host_options, link_options, ignored_switches)
-        return yaml.dump(config, default_flow_style=False)
+        config['dps'] = self.get_dps_config(
+            dp_options, host_options, link_options, ignored_switches)
+        return yaml_dump(config)
 
 
 class FaucetFakeOFTopoGenerator(FaucetTopoGenerator):
@@ -573,7 +582,7 @@ class FaucetFakeOFTopoGenerator(FaucetTopoGenerator):
 
     # NOTE: For now, we dont actually create the objects for the unittests
     #   so we can leave them as they are in the FaucetTopoGenerator function
-
-    def dp_dpid(self, i):
+    @staticmethod
+    def dp_dpid(i):
         """DP DPID"""
-        return '%u' % (i+1)
+        return '%u' % (i + 1)
