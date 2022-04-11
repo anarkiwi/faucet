@@ -5,6 +5,8 @@ on: [push, pull_request]
 env:
   FILES_CHANGED: "all"
   CODECOV_PY_VER: 3.8
+  # TODO: pytype does not yet support python 3.10: https://github.com/google/pytype/issues/1022
+  USING_PYTYPE: '3.7,3.8,3.9'
 
 jobs:
   unit-tests:
@@ -12,10 +14,10 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: [3.7, 3.8, 3.9]
+        python-version: [3.7, 3.8, 3.9, '3.10']
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - if: ${{ github.event_name == 'pull_request' }}
         name: Get file changes
         id: file_changes
@@ -52,7 +54,7 @@ jobs:
           echo "RQ_FILES_CHANGED=${RQ_FILES_CHANGED}" >> ${GITHUB_ENV}
           echo "DOC_FILES_CHANGED=${DOC_FILES_CHANGED}" >> ${GITHUB_ENV}
       - name: Set up python-${{ matrix.python-version }}
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v3
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
@@ -65,16 +67,18 @@ jobs:
           ./tests/run_unit_tests.sh
       - if: ${{ matrix.python-version == env.CODECOV_PY_VER }}
         name: Upload codecov
-        uses: codecov/codecov-action@v2
+        uses: codecov/codecov-action@v3
       - if: ${{ env.FILES_CHANGED == 'all' || env.RQ_FILES_CHANGED || env.PY_FILES_CHANGED }}
         name: Run pytype
         run: |
-          ./docker/pip_deps.sh --extra-requirements="codecheck-requirements.txt"
-          cd ./tests/codecheck
-          if [[ "${{ env.FILES_CHANGED }}" == "all" || ! -z "${{ env.RQ_FILES_CHANGED }}" ]]; then
-            echo "Running pytype on everything"
-            ./pytype.sh
-          else
-            echo "Running pytype on ${{ env.PY_FILES_CHANGED }}"
-            ./pytype.sh ${{ env.PY_FILES_CHANGED }}
+          if ${{ contains(env.USING_PYTYPE, matrix.python-version) }} == 'true' ; then
+            ./docker/pip_deps.sh --extra-requirements="codecheck-requirements.txt"
+            cd ./tests/codecheck
+            if [[ "${{ env.FILES_CHANGED }}" == "all" || ! -z "${{ env.RQ_FILES_CHANGED }}" ]]; then
+              echo "Running pytype on everything"
+              ./pytype.sh
+            else
+              echo "Running pytype on ${{ env.PY_FILES_CHANGED }}"
+              ./pytype.sh ${{ env.PY_FILES_CHANGED }}
+            fi
           fi

@@ -21,7 +21,6 @@ import glob
 import inspect
 import os
 import sys
-import multiprocessing
 import pdb
 import pstats
 import random
@@ -39,6 +38,7 @@ from packaging import version
 from concurrencytest import ConcurrentTestSuite, fork_for_tests
 from mininet.log import setLogLevel
 from mininet.clean import Cleanup
+import psutil
 
 from clib import mininet_test_util
 from clib.valve_test_lib import yaml_load, yaml_dump
@@ -374,7 +374,7 @@ def filter_test_hardware(test_obj, hw_config):
 
 
 def max_loadavg():
-    return int(multiprocessing.cpu_count() * 1.5)
+    return int(psutil.cpu_count(logical=False) * 1.5)
 
 
 def expand_tests(modules, requested_test_classes, regex_test_classes, excluded_test_classes,
@@ -794,7 +794,7 @@ def parse_args():
         args.loglevel, args.profile)
 
 
-def test_main(modules):
+def test_main(modules, serial_override=None):
     """Test main."""
 
     print('testing module %s' % modules)
@@ -802,6 +802,10 @@ def test_main(modules):
     (requested_test_classes, regex_test_classes, clean, dumpfail, debug, keep_logs, nocheck,
      serial, repeat, excluded_test_classes, report_json_filename, port_order,
      start_port, loglevel, profile) = parse_args()
+
+    if serial_override is not None:
+        print('overriding serial to ', serial_override)
+        serial = serial_override
 
     setLogLevel(loglevel)
 

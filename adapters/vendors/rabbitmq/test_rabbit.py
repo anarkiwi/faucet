@@ -14,12 +14,12 @@ class MockPikaChannel(pika.channel.Channel):
         # pylint: disable=super-init-not-called
         pass
 
-    @staticmethod
-    def basic_publish(exchange,
-                      routing_key,
-                      body,
-                      properties=None,
-                      mandatory=False):
+    def basic_publish(self,  # pylint: disable=no-self-use
+                      exchange,  # pylint: disable=unused-argument
+                      routing_key,  # pylint: disable=unused-argument
+                      body,  # pylint: disable=unused-argument
+                      properties=None,  # pylint: disable=unused-argument
+                      mandatory=False):  # pylint: disable=unused-argument
         return True
 
 
@@ -30,24 +30,22 @@ class MockPikaBadAMQP(pika.channel.Channel):
         # pylint: disable=super-init-not-called
         pass
 
-    @staticmethod
-    def basic_publish(exchange,
-                      routing_key,
-                      body,
-                      properties=None,
-                      mandatory=False):
+    def basic_publish(self,  # pylint: disable=no-self-use
+                      exchange,  # pylint: disable=unused-argument
+                      routing_key,  # pylint: disable=unused-argument
+                      body,  # pylint: disable=unused-argument
+                      properties=None,  # pylint: disable=unused-argument
+                      mandatory=False):  # pylint: disable=unused-argument
         raise pika.exceptions.AMQPError('failure')
 
 
 class MockRabbitAdapter(rabbit.RabbitAdapter):
     """Mock class for testing RabbitAdapter"""
 
-    @staticmethod
-    def rabbit_conn():
+    def rabbit_conn(self):  # pylint: disable=no-self-use
         return True
 
-    @staticmethod
-    def socket_conn():
+    def socket_conn(self):  # pylint: disable=no-self-use
         return True
 
 

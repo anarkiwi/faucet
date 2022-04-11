@@ -3019,6 +3019,81 @@ class FaucetUntaggedHUPTest(FaucetUntaggedTest):
                 self.scrape_prometheus_var(var, dpid=True, default=None))
 
 
+class FaucetChangeVlanACLTest(FaucetTest):
+
+    N_UNTAGGED = 4
+    N_TAGGED = 0
+    LINKS_PER_HOST = 1
+    CONFIG_GLOBAL = """
+vlans:
+    100:
+        description: "untagged"
+        acls_in: [1]
+"""
+
+    START_ACL_CONFIG = """
+acls:
+  1:
+    rules:
+    - rule:
+        eth_type: 0x800
+        actions: {allow: 1}
+    - rule:
+        actions: {allow: 1}
+"""
+
+    UPDATE_ACL_CONFIG = """
+acls:
+  1:
+    rules:
+    - rule:
+        eth_type: 0x806
+        actions: {allow: 1}
+    - rule:
+        eth_type: 0x800
+        actions: {allow: 1}
+    - rule:
+        actions: {allow: 1}
+"""
+
+    # pylint: disable=invalid-name
+    CONFIG = CONFIG_BOILER_UNTAGGED
+
+    def setUp(self):
+        super().setUp()
+        self.acl_config_file = os.path.join(self.tmpdir, 'acl.txt')
+        self.CONFIG = '\n'.join(
+            (self.CONFIG, 'include:\n     - %s' % self.acl_config_file))
+        with open(self.acl_config_file, 'w', encoding='utf-8') as acf:
+            acf.write(self.START_ACL_CONFIG)
+        self.topo = self.topo_class(
+            self.OVS_TYPE, self.ports_sock, self._test_name(), [self.dpid],
+            n_tagged=self.N_TAGGED, n_untagged=self.N_UNTAGGED,
+            links_per_host=self.LINKS_PER_HOST, hw_dpid=self.hw_dpid)
+        self.start_net()
+
+    def test_vlan_acl_update(self):
+        self.ping_all_when_learned()
+        new_yaml_acl_conf = yaml_load(self.UPDATE_ACL_CONFIG)
+        self.reload_conf(
+            new_yaml_acl_conf, self.acl_config_file,  # pytype: disable=attribute-error
+            restart=True, cold_start=True)
+        self.wait_until_matching_flow(
+            {'dl_type': 0x800}, table_id=self._VLAN_ACL_TABLE)
+        self.wait_until_matching_flow(
+            {'dl_type': 0x806}, table_id=self._VLAN_ACL_TABLE)
+        self.ping_all_when_learned()
+        orig_yaml_acl_conf = yaml_load(self.START_ACL_CONFIG)
+        self.reload_conf(
+            orig_yaml_acl_conf, self.acl_config_file,  # pytype: disable=attribute-error
+            restart=True, cold_start=True)
+        self.wait_until_matching_flow(
+            {'dl_type': 0x800}, table_id=self._VLAN_ACL_TABLE)
+        self.wait_until_no_matching_flow(
+            {'dl_type': 0x806}, table_id=self._VLAN_ACL_TABLE)
+        self.ping_all_when_learned()
+
+
 class FaucetIPv4TupleTest(FaucetTest):
 
     MAX_RULES = 1024
@@ -3122,6 +3197,7 @@ acls:
         tcp_dst: 65535
         tcp_src: 65535
 """
+
 
 
 class FaucetConfigReloadTestBase(FaucetTest):
@@ -8022,6 +8098,246 @@ acls:
 
     def test_untagged(self):
         pass
+
+
+class FaucetConntrackMatchTest(FaucetUntaggedTest):
+    """Test that untracked TCP packets can be matched with conntrack and blocked"""
+
+    SOFTWARE_ONLY = True
+
+    CONFIG_GLOBAL = """
+vlans:
+    100:
+        description: "untagged"
+acls:
+    1:
+        - rule:
+            eth_type: 0x0800
+            ip_proto: 6
+            ct_state: 0/0x20
+            actions:
+                allow: 0
+        - rule:
+            actions:
+                allow: 1
+"""
+    CONFIG = """
+        interfaces:
+            %(port_1)d:
+                native_vlan: 100
+                acl_in: 1
+            %(port_2)d:
+                native_vlan: 100
+            %(port_3)d:
+                native_vlan: 100
+            %(port_4)d:
+                native_vlan: 100
+"""
+
+    def test_untracked_tcp_blocked(self):
+        self.wait_until_matching_flow(
+            {'ct_state': '0/0x20',
+             'eth_type': 0x0800,
+             'ip_proto': 6},
+            table_id=self._PORT_ACL_TABLE)
+
+        self.ping_all_when_learned()
+
+        first_host, second_host = self.hosts_name_ordered()[0:2]
+        tcpdump_filter = ('tcp and port 1024')
+        tcpdump_txt = self.tcpdump_helper(
+            second_host, tcpdump_filter, [
+                lambda: first_host.cmd(f"nc -w 1 {second_host.IP()} 1024")])
+        self.assertNotIn(f"{second_host.IP()}.1024: Flags [S]", tcpdump_txt)
+
+        self.wait_nonzero_packet_count_flow(
+            {'ct_state': '0/0x20',
+             'eth_type': 0x0800,
+             'ip_proto': 6},
+            table_id=self._PORT_ACL_TABLE)
+
+
+class FaucetConntrackCommitTest(FaucetUntaggedTest):
+    """Test that new TCP flows can be matched/tracked and commited to conntrack"""
+
+    SOFTWARE_ONLY = True
+
+    CONFIG_GLOBAL = """
+vlans:
+    100:
+        description: "untagged"
+acls:
+    1:
+        - rule:
+            eth_type: 0x0800
+            ip_proto: 6
+            ct_state: 0/0x20
+            actions:
+                ct:
+                    table: 0
+                    zone: 1
+        - rule:
+            eth_type: 0x0800
+            ip_proto: 6
+            ct_state: 0x21/0x21
+            actions:
+                ct:
+                    flags: 1
+                    table: 1
+                    zone: 1
+        - rule:
+            actions:
+                allow: 1
+"""
+    CONFIG = """
+        interfaces:
+            %(port_1)d:
+                native_vlan: 100
+                acl_in: 1
+            %(port_2)d:
+                native_vlan: 100
+            %(port_3)d:
+                native_vlan: 100
+            %(port_4)d:
+                native_vlan: 100
+"""
+
+    def test_commit_tracked_tcp(self):
+        self.ping_all_when_learned()
+
+        first_host, second_host = self.hosts_name_ordered()[0:2]
+        tcpdump_filter = ('tcp and port 1024')
+        tcpdump_txt = self.tcpdump_helper(
+            second_host, tcpdump_filter, [
+                lambda: first_host.cmd(f"nc -w 1 {second_host.IP()} 1024")])
+
+        self.wait_nonzero_packet_count_flow(
+            {'ct_state': '0/0x20',
+             'eth_type': 0x0800,
+             'ip_proto': 6},
+            actions=['NX_CT: {flags: 0, zone: [1..17], table: 0, alg: 0, actions: []}'],
+            table_id=self._PORT_ACL_TABLE)
+        self.wait_nonzero_packet_count_flow(
+            {'ct_state': '0x21/0x21',
+             'eth_type': 0x0800,
+             'ip_proto': 6},
+            actions=['NX_CT: {flags: 1, zone: [1..17], table: 1, alg: 0, actions: []}'],
+            table_id=self._PORT_ACL_TABLE)
+
+        self.assertIn(f"{second_host.IP()}.1024: Flags [S]", tcpdump_txt)
+
+
+class FaucetConntrackClearTest(FaucetUntaggedTest):
+    """Verify clear flag can be set in CT action"""
+
+    SOFTWARE_ONLY = True
+
+    CONFIG_GLOBAL = """
+vlans:
+    100:
+        description: "untagged"
+        acl_in: 2
+acls:
+    1:
+        - rule:
+            eth_type: 0x0800
+            ip_proto: 6
+            ct_state: 0/0x20
+            actions:
+                ct:
+                    table: 0
+                    zone: 1
+        - rule:
+            eth_type: 0x0800
+            ip_proto: 6
+            ct_state: 0x21/0x21
+            actions:
+                ct:
+                    flags: 1
+                    table: 1
+                    zone: 1
+        - rule:
+            actions:
+                allow: 1
+    2:
+        - rule:
+            eth_type: 0x0800
+            ip_proto: 6
+            ct_state: 0x20/0x20
+            actions:
+                ct:
+                    clear: true
+                allow: 1
+        - rule:
+            actions:
+                allow: 1
+"""
+    CONFIG = """
+        interfaces:
+            %(port_1)d:
+                native_vlan: 100
+                acl_in: 1
+            %(port_2)d:
+                native_vlan: 100
+            %(port_3)d:
+                native_vlan: 100
+            %(port_4)d:
+                native_vlan: 100
+"""
+
+
+class FaucetConntrackNATTest(FaucetUntaggedTest):
+    """Test that conntrack NAT action rewrites source IP address"""
+
+    SOFTWARE_ONLY = True
+
+    CONFIG_GLOBAL = """
+vlans:
+    100:
+        description: "untagged"
+acls:
+    1:
+        - rule:
+            eth_type: 0x0800
+            ip_proto: 6
+            actions:
+                ct:
+                    flags: 1
+                    table: 1
+                    zone: 1
+                    nat:
+                        flags: 1
+                        range_ipv4_min: 192.0.2.250
+                        range_ipv4_max: 192.0.2.250
+        - rule:
+            actions:
+                allow: 1
+"""
+    CONFIG = """
+        interfaces:
+            %(port_1)d:
+                native_vlan: 100
+                acl_in: 1
+            %(port_2)d:
+                native_vlan: 100
+            %(port_3)d:
+                native_vlan: 100
+            %(port_4)d:
+                native_vlan: 100
+"""
+
+    def test_nat_tcp(self):
+        self.ping_all_when_learned()
+
+        first_host, second_host = self.hosts_name_ordered()[0:2]
+        tcpdump_filter = ('tcp and port 1024')
+        tcpdump_txt = self.tcpdump_helper(
+            second_host, tcpdump_filter, [
+                lambda: first_host.cmd(f"nc -w 1 {second_host.IP()} 1024")])
+
+        tcpdump_regex = re.escape("192.0.2.250.") + r"\d+" + \
+            re.escape(f" > {second_host.IP()}.1024: Flags [S]")
+        self.assertRegex(tcpdump_txt, tcpdump_regex)
 
 
 class FaucetDscpMatchTest(FaucetUntaggedTest):
