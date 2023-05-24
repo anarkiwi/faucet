@@ -9,32 +9,34 @@ env:
 jobs:
   sanity-tests:
     name: Sanity tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     container:
-      image: faucet/test-base:10.0.0
+      image: faucet/test-base:latest
       options: --privileged --cap-add=ALL -v /lib/modules:/lib/modules -v /var/local/lib/docker:/var/lib/docker --sysctl net.ipv6.conf.all.disable_ipv6=0 --ulimit core=-1
     steps:
       - name: Checkout repo
         uses: actions/checkout@v3
       - if: ${{ github.event_name == 'pull_request' }}
-        name: Get file changes
-        id: file_changes
-        uses: lots0logs/gh-action-get-changed-files@2.1.4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - if: ${{ steps.file_changes.outputs.all }}
-        name: Setup dependencies
+        name: Setup dependencies for changed files action
         run: |
           sudo apt-get update -y
           sudo apt-get install -y jq
-      - if: ${{ steps.file_changes.outputs.all }}
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - if: ${{ github.event_name == 'pull_request' }}
+        name: Get file changes
+        id: file_changes
+        uses: tj-actions/changed-files@v35
+        with:
+          json: true
+          json_raw_format: true
+      - if: ${{ steps.file_changes.outputs.all_changed_files }}
         name: Compare file changes
         run: |
-          FILES_ALL="$(echo '${{ steps.file_changes.outputs.all }}' | jq -r '.[]' | tr '\n' ' ')"
-          FILES_ADDED="$(echo '${{ steps.file_changes.outputs.added }}' | jq -r '.[]' | tr '\n' ' ')"
-          FILES_DELETED="$(echo '${{ steps.file_changes.outputs.deleted }}' | jq -r '.[]' | tr '\n' ' ')"
-          FILES_RENAMED="$(echo '${{ steps.file_changes.outputs.renamed }}' | jq -r '.[]' | tr '\n' ' ')"
-          FILES_MODIFIED="$(echo '${{ steps.file_changes.outputs.modified }}' | jq -r '.[]' | tr '\n' ' ')"
+          FILES_ALL="$(echo '${{ steps.file_changes.outputs.all_changed_files }}' | jq -r '.[]' | tr '\n' ' ')"
+          FILES_ADDED="$(echo '${{ steps.file_changes.outputs.added_files }}' | jq -r '.[]' | tr '\n' ' ')"
+          FILES_DELETED="$(echo '${{ steps.file_changes.outputs.deleted_files }}' | jq -r '.[]' | tr '\n' ' ')"
+          FILES_RENAMED="$(echo '${{ steps.file_changes.outputs.renamed_files }}' | jq -r '.[]' | tr '\n' ' ')"
+          FILES_MODIFIED="$(echo '${{ steps.file_changes.outputs.modified_files }}' | jq -r '.[]' | tr '\n' ' ')"
           FILES_ADDED_MODIFIED="${FILES_ADDED} ${FILES_MODIFIED}"
           PY_FILES_CHANGED="$(echo ${FILES_ADDED_MODIFIED} | tr ' ' '\n' | grep -E '\.py$' | tr '\n' ' ')"
           CI_TEST_FILES_CHANGED="$(echo ${FILES_ADDED_MODIFIED} | tr ' ' '\n' | grep -E '(workflows\/tests-.+\.yml$|Dockerfile\.tests$|^docker\/.+$|tests\/.+\.sh$)' | tr '\n' ' ')"
@@ -73,10 +75,10 @@ jobs:
 
   integration-tests:
     name: Integration tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: sanity-tests
     container:
-      image: faucet/test-base:10.0.0
+      image: faucet/test-base:latest
       options: --privileged --cap-add=ALL -v /lib/modules:/lib/modules -v /var/local/lib/docker:/var/lib/docker --sysctl net.ipv6.conf.all.disable_ipv6=0 --ulimit core=-1
     strategy:
       matrix:
@@ -85,24 +87,26 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v3
       - if: ${{ github.event_name == 'pull_request' && github.event.before != '0000000000000000000000000000000000000000' }}
-        name: Get file changes
-        id: file_changes
-        uses: lots0logs/gh-action-get-changed-files@2.1.4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - if: ${{ steps.file_changes.outputs.all }}
-        name: Setup dependencies
+        name: Setup dependencies for changed files action
         run: |
           sudo apt-get update -y
           sudo apt-get install -y jq
-      - if: ${{ steps.file_changes.outputs.all }}
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - if: ${{ github.event_name == 'pull_request' && github.event.before != '0000000000000000000000000000000000000000' }}
+        name: Get file changes
+        id: file_changes
+        uses: tj-actions/changed-files@v35
+        with:
+          json: true
+          json_raw_format: true
+      - if: ${{ steps.file_changes.outputs.all_changed_files }}
         name: Compare file changes
         run: |
-          FILES_ALL="$(echo '${{ steps.file_changes.outputs.all }}' | jq -r '.[]' | tr '\n' ' ')"
-          FILES_ADDED="$(echo '${{ steps.file_changes.outputs.added }}' | jq -r '.[]' | tr '\n' ' ')"
-          FILES_DELETED="$(echo '${{ steps.file_changes.outputs.deleted }}' | jq -r '.[]' | tr '\n' ' ')"
-          FILES_RENAMED="$(echo '${{ steps.file_changes.outputs.renamed }}' | jq -r '.[]' | tr '\n' ' ')"
-          FILES_MODIFIED="$(echo '${{ steps.file_changes.outputs.modified }}' | jq -r '.[]' | tr '\n' ' ')"
+          FILES_ALL="$(echo '${{ steps.file_changes.outputs.all_changed_files }}' | jq -r '.[]' | tr '\n' ' ')"
+          FILES_ADDED="$(echo '${{ steps.file_changes.outputs.added_files }}' | jq -r '.[]' | tr '\n' ' ')"
+          FILES_DELETED="$(echo '${{ steps.file_changes.outputs.deleted_files }}' | jq -r '.[]' | tr '\n' ' ')"
+          FILES_RENAMED="$(echo '${{ steps.file_changes.outputs.renamed_files }}' | jq -r '.[]' | tr '\n' ' ')"
+          FILES_MODIFIED="$(echo '${{ steps.file_changes.outputs.modified_files }}' | jq -r '.[]' | tr '\n' ' ')"
           FILES_ADDED_MODIFIED="${FILES_ADDED} ${FILES_MODIFIED}"
           PY_FILES_CHANGED="$(echo ${FILES_ADDED_MODIFIED} | tr ' ' '\n' | grep -E '\.py$' | tr '\n' ' ')"
           CI_TEST_FILES_CHANGED="$(echo ${FILES_ADDED_MODIFIED} | tr ' ' '\n' | grep -E '(workflows\/tests-.+\.yml$|Dockerfile\.tests$|^docker\/.+$|tests\/.+\.sh$)' | tr '\n' ' ')"

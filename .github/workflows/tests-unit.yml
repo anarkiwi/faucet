@@ -4,9 +4,8 @@ on: [push, pull_request]
 
 env:
   FILES_CHANGED: "all"
-  CODECOV_PY_VER: 3.8
-  # TODO: pytype does not yet support python 3.10: https://github.com/google/pytype/issues/1022
-  USING_PYTYPE: '3.7,3.8,3.9'
+  CODECOV_PY_VER: '3.10'
+  USING_PYTYPE: '3.8,3.9,3.10'
 
 jobs:
   unit-tests:
@@ -14,29 +13,31 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: [3.7, 3.8, 3.9, '3.10']
+        python-version: [3.8, 3.9, '3.10', 3.11]
     steps:
       - name: Checkout repo
         uses: actions/checkout@v3
       - if: ${{ github.event_name == 'pull_request' }}
-        name: Get file changes
-        id: file_changes
-        uses: lots0logs/gh-action-get-changed-files@2.1.4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - if: ${{ steps.file_changes.outputs.all }}
-        name: Setup dependencies
+        name: Setup dependencies for changed files action
         run: |
           sudo apt-get update -y
           sudo apt-get install -y jq
-      - if: ${{ steps.file_changes.outputs.all }}
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - if: ${{ github.event_name == 'pull_request' }}
+        name: Get file changes
+        id: file_changes
+        uses: tj-actions/changed-files@v35
+        with:
+          json: true
+          json_raw_format: true
+      - if: ${{ steps.file_changes.outputs.all_changed_files }}
         name: Compare file changes
         run: |
-          FILES_ALL="$(echo '${{ steps.file_changes.outputs.all }}' | jq -r '.[]' | tr '\n' ' ')"
-          FILES_ADDED="$(echo '${{ steps.file_changes.outputs.added }}' | jq -r '.[]' | tr '\n' ' ')"
-          FILES_DELETED="$(echo '${{ steps.file_changes.outputs.deleted }}' | jq -r '.[]' | tr '\n' ' ')"
-          FILES_RENAMED="$(echo '${{ steps.file_changes.outputs.renamed }}' | jq -r '.[]' | tr '\n' ' ')"
-          FILES_MODIFIED="$(echo '${{ steps.file_changes.outputs.modified }}' | jq -r '.[]' | tr '\n' ' ')"
+          FILES_ALL="$(echo '${{ steps.file_changes.outputs.all_changed_files }}' | jq -r '.[]' | tr '\n' ' ')"
+          FILES_ADDED="$(echo '${{ steps.file_changes.outputs.added_files }}' | jq -r '.[]' | tr '\n' ' ')"
+          FILES_DELETED="$(echo '${{ steps.file_changes.outputs.deleted_files }}' | jq -r '.[]' | tr '\n' ' ')"
+          FILES_RENAMED="$(echo '${{ steps.file_changes.outputs.renamed_files }}' | jq -r '.[]' | tr '\n' ' ')"
+          FILES_MODIFIED="$(echo '${{ steps.file_changes.outputs.modified_files }}' | jq -r '.[]' | tr '\n' ' ')"
           FILES_ADDED_MODIFIED="${FILES_ADDED} ${FILES_MODIFIED}"
           PY_FILES_CHANGED="$(echo ${FILES_ADDED_MODIFIED} | tr ' ' '\n' | grep -E '\.py$' | tr '\n' ' ')"
           CI_TEST_FILES_CHANGED="$(echo ${FILES_ADDED_MODIFIED} | tr ' ' '\n' | grep -E '(workflows\/tests-.+\.yml$|Dockerfile\.tests$|^docker\/.+$|tests\/.+\.sh$)' | tr '\n' ' ')"
@@ -54,7 +55,7 @@ jobs:
           echo "RQ_FILES_CHANGED=${RQ_FILES_CHANGED}" >> ${GITHUB_ENV}
           echo "DOC_FILES_CHANGED=${DOC_FILES_CHANGED}" >> ${GITHUB_ENV}
       - name: Set up python-${{ matrix.python-version }}
-        uses: actions/setup-python@v3
+        uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies

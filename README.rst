@@ -23,7 +23,7 @@ It supports:
 - Policy based forwarding to offload to external NFV applications (Eg 802.1x via hostapd, DHCP to isc DHCPD)
 - Port and flow statistics via InfluxDB/Grafana
 - Controller health and statistics via Prometheus
-- Unit and systems tests run under Travis based on mininet and OVS
+- Unit and systems tests run under GitHub workflows based on mininet and OVS
 
 Hardware and software switch support
 ------------------------------------
@@ -55,12 +55,10 @@ Please see the `developer guide <http://docs.faucet.nz/en/latest/developer_guide
 Getting Help
 ------------
 
-We use maintain a number of mailing lists for communicating with users and
-developers:
+We use a mailing list on google groups for announcing new versions and
+communicating with users and developers:
 
- * `faucet-announce <https://list.waikato.ac.nz/mailman/listinfo/faucet-announce>`_
- * `faucet-dev <https://list.waikato.ac.nz/mailman/listinfo/faucet-dev>`_
- * `faucet-users <https://lists.geant.org/sympa/info/faucet-users>`_
+ * `faucetsdn <https://groups.google.com/g/faucetsdn>`_
 
 We also have the #faucet IRC channel on
 `libera <https://web.libera.chat/?channels=#faucet>`_.
