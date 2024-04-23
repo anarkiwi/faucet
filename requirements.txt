@@ -1,9 +1,11 @@
+https://github.com/faucetsdn/python3-fakencclient/archive/main.tar.gz#egg=ncclient
 chewie==0.0.25
+eventlet>=0.34.3; python_version >= "3.12"
 influxdb>=2.12.0
 networkx>=1.9
 pbr>=1.9
-prometheus_client==0.16.0
-ruamel.yaml==0.17.26
+prometheus_client==0.20.0
+ruamel.yaml==0.18.6
 os_ken==2.6.0
 beka==0.4.2
 pytricia>=1.0.0

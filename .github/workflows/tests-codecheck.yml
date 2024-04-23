@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - if: ${{ github.event_name == 'pull_request' }}
         name: Setup dependencies for changed files action
         run: |
@@ -22,7 +22,7 @@ jobs:
       - if: ${{ github.event_name == 'pull_request' }}
         name: Get file changes
         id: file_changes
-        uses: tj-actions/changed-files@v35
+        uses: tj-actions/changed-files@v44
         with:
           json: true
           json_raw_format: true
@@ -51,7 +51,7 @@ jobs:
           echo "RQ_FILES_CHANGED=${RQ_FILES_CHANGED}" >> ${GITHUB_ENV}
           echo "DOC_FILES_CHANGED=${DOC_FILES_CHANGED}" >> ${GITHUB_ENV}
       - name: Set up python-${{ env.CODECHECK_PY_VER }}
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ env.CODECHECK_PY_VER }}
       - name: Install dependencies
