@@ -2,3 +2,4 @@
 sphinx==7.4.7
 sphinx_rtd_theme==2.0.0
 sphinxcontrib-svg2pdfconverter==1.2.2
+setuptools>=65.5.1 # not directly required, pinned by Snyk to avoid a vulnerability
